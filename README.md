@@ -34,34 +34,26 @@ includes:
 Catches syntax errors in SQL queries:
 
 ```php
-// ❌ Missing FROM keyword
-$stmt = $db->prepare("SELECT id, name users WHERE id = :id");
-```
-```diff
-- Error: SQL syntax error in prepare(): Unexpected beginning of statement. (near "users")
-```
-
-```php
 // ❌ Incomplete query
 $stmt = $db->query("SELECT * FROM");
 ```
 ```diff
-- Error: SQL syntax error in query(): Unexpected end of statement.
-```
-
-```php
-// ✅ Valid SQL
-$stmt = $db->prepare("SELECT id, name FROM users WHERE id = :id");
+- Error: SQL syntax error in query(): An expression was expected.
 ```
 
 Works with both direct strings and variables:
 
 ```php
-$sql = "SELECT id, name users WHERE id = :id"; // Missing FROM keyword
-$stmt = $db->prepare($sql);
+$sql = "SELECT * FROM";
+$stmt = $db->query($sql);
 ```
 ```diff
-- Error: SQL syntax error in prepare(): Unexpected beginning of statement. (near "users")
+- Error: SQL syntax error in query(): An expression was expected.
+```
+
+```php
+// ✅ Valid SQL
+$stmt = $db->prepare("SELECT id, name FROM users WHERE id = :id");
 ```
 
 ### 2. Parameter Binding Validation
@@ -74,7 +66,7 @@ $stmt = $db->prepare("SELECT * FROM users WHERE id = :id AND name = :name");
 $stmt->execute(['id' => 1]); // Missing :name
 ```
 ```diff
-- Error: Missing parameter :name in execute() array
+- Error: Missing parameter :name in execute() array - SQL query (line X) expects this parameter
 ```
 
 ```php
@@ -83,7 +75,7 @@ $stmt = $db->prepare("SELECT * FROM users WHERE id = :id");
 $stmt->execute(['id' => 1, 'extra' => 'unused']);
 ```
 ```diff
-- Error: Parameter :extra in execute() array is not used in SQL query
+- Error: Parameter :extra in execute() array is not used in SQL query (line X)
 ```
 
 ```php
@@ -92,8 +84,8 @@ $stmt = $db->prepare("SELECT * FROM users WHERE id = :user_id");
 $stmt->execute(['id' => 1]); // Should be :user_id
 ```
 ```diff
-- Error: Missing parameter :user_id in execute() array
-- Error: Parameter :id in execute() array is not used in SQL query
+- Error: Missing parameter :user_id in execute() array - SQL query (line X) expects this parameter
+- Error: Parameter :id in execute() array is not used in SQL query (line X)
 ```
 
 ```php
@@ -110,8 +102,8 @@ $stmt->bindValue(':id', 1); // This is ignored!
 $stmt->execute(['name' => 'John']); // Wrong parameter
 ```
 ```diff
-- Error: Missing parameter :id in execute() array
-- Error: Parameter :name in execute() array is not used in SQL query
+- Error: Missing parameter :id in execute() array - SQL query (line X) expects this parameter
+- Error: Parameter :name in execute() array is not used in SQL query (line X)
 ```
 
 ### 3. SELECT Column Validation
@@ -127,7 +119,7 @@ $stmt->execute(['id' => 1]);
 $user = $stmt->fetch();
 ```
 ```diff
-- Error: SELECT column mismatch: PHPDoc expects property "name" but SELECT has "nam" - possible typo?
+- Error: SELECT column mismatch: PHPDoc expects property "name" but SELECT (line X) has "nam" - possible typo?
 ```
 
 ```php
@@ -139,7 +131,7 @@ $stmt->execute(['id' => 1]);
 $user = $stmt->fetch();
 ```
 ```diff
-- Error: SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query
+- Error: SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line X)
 ```
 
 ```php
@@ -151,7 +143,7 @@ $stmt->execute(['id' => 1]);
 $user = $stmt->fetch();
 ```
 ```diff
-- Error: SELECT column extra: SELECT has column "created_at" but it is not in the PHPDoc object shape
+- Error: SELECT column extra: SELECT (line X) has column "created_at" but it is not in the PHPDoc object shape
 ```
 
 ```php
@@ -181,8 +173,8 @@ class UserRepository
         $user = $stmt->fetch();
 ```
 ```diff
--       Error: SELECT column mismatch: PHPDoc expects property "name" but SELECT has "nam" - possible typo?
--       Error: SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query
+-       Error: SELECT column mismatch: PHPDoc expects property "name" but SELECT (line X) has "nam" - possible typo?
+-       Error: SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line X)
 ```
 ```php
     }
