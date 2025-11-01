@@ -1,0 +1,13 @@
+services:
+    -
+        class: Pierresh\PhpStanPdoMysql\Rules\ValidatePdoSqlSyntaxRule
+        tags:
+            - phpstan.rules.rule
+    -
+        class: Pierresh\PhpStanPdoMysql\Rules\ValidatePdoParameterBindingsRule
+        tags:
+            - phpstan.rules.rule
+    -
+        class: Pierresh\PhpStanPdoMysql\Rules\ValidateSelectColumnsMatchPhpDocRule
+        tags:
+            - phpstan.rules.rule
