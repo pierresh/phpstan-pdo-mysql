@@ -32,6 +32,13 @@
     "scripts": {
         "test": "./vendor/bin/phpunit-watcher watch"
     },
+    "extra": {
+        "phpstan": {
+            "includes": [
+                "extension.neon"
+            ]
+        }
+    },
     "config": {
         "sort-packages": true
     },
