@@ -79,4 +79,34 @@ class SelectColumnErrors
         /** @var object{id: int, name: string} */
         $user = $stmt->fetch();
     }
+
+    public function multipleQueriesVariableBasedMatching(): void
+    {
+        // First query: only has 2 columns (id, name)
+        $stmt = $this->db->prepare("SELECT id, name FROM users WHERE id = :id");
+
+        // Second query: has all 3 columns (id, name, email)
+        $stmt3 = $this->db->prepare("SELECT id, name, email FROM users WHERE id = :id");
+        $stmt3->execute(['id' => 1]);
+
+        // This @var expects 3 columns but uses $stmt (which only has 2 columns)
+        // Variable-based matching should detect this mismatch
+        /** @var object{id: int, name: string, email: string} */
+        $user = $stmt->fetch();
+    }
+
+    public function multipleQueriesVariableBasedMatchingCorrect(): void
+    {
+        // First query: only has 2 columns (id, name)
+        $stmt = $this->db->prepare("SELECT id, name FROM users WHERE id = :id");
+
+        // Second query: has all 3 columns (id, name, email)
+        $stmt3 = $this->db->prepare("SELECT id, name, email FROM users WHERE id = :id");
+        $stmt3->execute(['id' => 1]);
+
+        // This @var expects 3 columns and correctly uses $stmt3 (which has 3 columns)
+        // Variable-based matching should NOT error
+        /** @var object{id: int, name: string, email: string} */
+        $user = $stmt3->fetch();
+    }
 }

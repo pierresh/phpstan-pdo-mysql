@@ -14,20 +14,21 @@ use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 
 /**
- * This rule validates that SELECT columns in SQL queries match the PHPDoc @var object shape.
+ * This rule validates that SELECT columns in SQL queries match PHPDoc @var object shapes.
  *
  * IMPORTANT: This rule only validates @var annotations, not @return annotations.
  * The @var annotation describes what was EXTRACTED from the database, while @return describes
- * what the method returns (which may be transformed/different).
+ * what the method returns (which may be different).
  *
  * Patterns it validates:
- * 1. Local prepare in method with @var:
+ *
+ * 1. @var annotation with local prepare:
  *    - $query = $db->prepare("SELECT col1, col2 FROM ...")
  *    - $item = $query->fetchObject();
  *    - /** @var object{prop1: type, prop2: type} *\/
  *    - Validates that col1, col2 match prop1, prop2
  *
- * 2. Class property prepare (cross-method) with @var:
+ * 2. @var annotation with class property prepare (cross-method):
  *    - Constructor: $this->query = $db->prepare("SELECT col1, col2 FROM ...")
  *    - Method: $item = $this->query->fetchObject();
  *    - /** @var object{prop1: type, prop2: type} *\/
@@ -46,6 +47,11 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	{
 		$errors = [];
 
+		// Skip migration files
+		$filePath = $scope->getFile();
+		if (strpos($filePath, '/migrations/') !== false) {
+			return [];
+		}
 
 		// Extract @phpstan-type definitions from class PHPDoc
 		$typeAliases = $this->extractTypeAliases($node);
@@ -57,19 +63,25 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		// Note: We only validate @var annotations, not @return annotations
 		// because @var describes what was EXTRACTED from the database,
 		// while @return describes what the method returns (which may be different)
+		$seen = [];
 		foreach ($node->getMethods() as $method) {
 			// Validate @var annotations within method body
 			$varAnnotations = $this->extractVarAnnotations($method, $propertyPreparations, $typeAliases);
 			foreach ($varAnnotations as $varInfo) {
-				$errors = array_merge(
-					$errors,
-					$this->validateSqlAgainstPhpDoc(
-						$varInfo['sql'],
-						$varInfo['sql_line'],
-						$varInfo['object_shape'],
-						$varInfo['var_line']
-					)
-				);
+				// Create a unique key to avoid duplicate validations
+				$key = $varInfo['var_line'] . ':' . $varInfo['sql_line'] . ':' . json_encode($varInfo['object_shape']);
+				if (!isset($seen[$key])) {
+					$seen[$key] = true;
+					$errors = array_merge(
+						$errors,
+						$this->validateSqlAgainstPhpDoc(
+							$varInfo['sql'],
+							$varInfo['sql_line'],
+							$varInfo['object_shape'],
+							$varInfo['var_line']
+						)
+					);
+				}
 			}
 		}
 
@@ -152,7 +164,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * Extract property preparations like: $this->query = $db->prepare("...")
 	 * Now supports both direct strings and variables
 	 *
-	 * @return array<string, array{sql: string, line: int}>
+	 * @return array<string, array{sql: string, line: int, var?: string}>
 	 */
 	private function extractPropertyPreparations(Class_ $class): array
 	{
@@ -226,7 +238,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Extract @var annotations from method body and match them with SQL queries
 	 *
-	 * @param array<string, array{sql: string, line: int}> $propertyPreparations
+	 * @param array<string, array{sql: string, line: int, var?: string}> $propertyPreparations
 	 * @param array<string, array<string, string>> $typeAliases
 	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int}>
 	 */
@@ -261,22 +273,42 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			}
 		}
 
-		// Match each @var annotation with SQL queries
-		// Use a set to avoid duplicates
-		$seen = [];
+		// Match each @var annotation with SQL queries by variable name
 		foreach ($varShapes as $varInfo) {
-			foreach ($sqlQueries as $sqlInfo) {
-				// Create a unique key to avoid duplicate validations
-				$key = $varInfo['line'] . ':' . $sqlInfo['line'];
-				if (!isset($seen[$key])) {
-					$seen[$key] = true;
-					$annotations[] = [
-						'sql' => $sqlInfo['sql'],
-						'sql_line' => $sqlInfo['line'],
-						'object_shape' => $varInfo['object_shape'],
-						'var_line' => $varInfo['line'],
-					];
+			$matchedSql = null;
+
+			// If we know which variable is being fetched from, match by variable name
+			if ($varInfo['fetch_var'] !== null) {
+				foreach ($sqlQueries as $sqlInfo) {
+					if (isset($sqlInfo['var']) && $sqlInfo['var'] === $varInfo['fetch_var']) {
+						$matchedSql = $sqlInfo;
+						break;
+					}
 				}
+			}
+
+			// Fallback: if no variable match or no fetch_var, use closest SQL before @var
+			if ($matchedSql === null) {
+				$closestDistance = PHP_INT_MAX;
+				foreach ($sqlQueries as $sqlInfo) {
+					if ($sqlInfo['line'] < $varInfo['line']) {
+						$distance = $varInfo['line'] - $sqlInfo['line'];
+						if ($distance < $closestDistance) {
+							$closestDistance = $distance;
+							$matchedSql = $sqlInfo;
+						}
+					}
+				}
+			}
+
+			// If we found a matching SQL query, validate it
+			if ($matchedSql !== null) {
+				$annotations[] = [
+					'sql' => $matchedSql['sql'],
+					'sql_line' => $matchedSql['line'],
+					'object_shape' => $varInfo['object_shape'],
+					'var_line' => $varInfo['line'],
+				];
 			}
 		}
 
@@ -286,7 +318,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Recursively collect @var object{...} annotations
 	 *
-	 * @param array<array{line: int, object_shape: array<string, string>}> &$varShapes
+	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null}> &$varShapes
 	 * @param array<string, array<string, string>> $typeAliases
 	 */
 	private function collectVarAnnotationsRecursive(Node $node, array &$varShapes, array $typeAliases): void
@@ -295,26 +327,39 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		if ($docComment !== null) {
 			$docText = $docComment->getText();
 
-			// First try to extract inline object shape: @var object{...}
-			$objectShape = $this->extractObjectShapeFromPhpDoc($docText, '@var');
+			// Only process @var comments on statement nodes (not expression nodes)
+			// to avoid processing the same comment multiple times as it bubbles down the AST
+			$isStatementNode = $node instanceof Node\Stmt\Expression ||
+			                   $node instanceof Node\Stmt\Return_;
 
-			// If not found, check if it's a type alias: @var AliasName
-			if ($objectShape === null) {
-				$matchCount = preg_match('/@var\s+(\w+)/', $docText, $matches);
-				if ($matchCount !== false && $matchCount > 0) {
-					$typeName = $matches[1];
-					if (isset($typeAliases[$typeName])) {
-						$objectShape = $typeAliases[$typeName];
+			if ($isStatementNode) {
+				// First try to extract inline object shape: @var object{...}
+				$objectShape = $this->extractObjectShapeFromPhpDoc($docText, '@var');
+
+				// If not found, check if it's a type alias: @var AliasName
+				if ($objectShape === null) {
+					$matchCount = preg_match('/@var\s+(\w+)/', $docText, $matches);
+					if ($matchCount !== false && $matchCount > 0) {
+						$typeName = $matches[1];
+						if (isset($typeAliases[$typeName])) {
+							$objectShape = $typeAliases[$typeName];
+						}
 					}
 				}
-			}
 
-			if ($objectShape !== null) {
-				$varLine = $this->getVarAnnotationLine($docComment);
-				$varShapes[] = [
-					'line' => $varLine,
-					'object_shape' => $objectShape,
-				];
+				if ($objectShape !== null) {
+					$varLine = $this->getVarAnnotationLine($docComment);
+
+					// Try to find which variable is being assigned in the next statement
+					// Pattern: /** @var ... */ $user = $stmt->fetch();
+					$fetchVar = $this->getFetchVariableAfterComment($node);
+
+					$varShapes[] = [
+						'line' => $varLine,
+						'object_shape' => $objectShape,
+						'fetch_var' => $fetchVar,
+					];
+				}
 			}
 		}
 
@@ -352,6 +397,34 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		}
 
 		return $docStartLine;
+	}
+
+	/**
+	 * Extract which variable is being fetched from in a statement with a var comment
+	 * Pattern: comment followed by assignment like user = stmt->fetch()
+	 * We want to extract "stmt" (the variable being fetched from)
+	 */
+	private function getFetchVariableAfterComment(Node $node): ?string
+	{
+		// The node with the @var comment could be an assignment
+		if ($node instanceof Node\Stmt\Expression && $node->expr instanceof Node\Expr\Assign) {
+			$assign = $node->expr;
+			// Check if right side is a method call (fetch/fetchObject)
+			if ($assign->expr instanceof MethodCall) {
+				$methodCall = $assign->expr;
+				if (
+					$methodCall->name instanceof Node\Identifier &&
+					($methodCall->name->toString() === 'fetch' || $methodCall->name->toString() === 'fetchObject')
+				) {
+					// Extract the variable being called on
+					if ($methodCall->var instanceof Variable && is_string($methodCall->var->name)) {
+						return $methodCall->var->name;
+					}
+				}
+			}
+		}
+
+		return null;
 	}
 
 	/**
@@ -430,8 +503,17 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		// Extract SELECT columns
 		$selectColumns = $this->extractSelectColumns($sql);
+
 		if ($selectColumns === null) {
-			return []; // Can't parse, skip validation
+			// Cannot extract columns - likely malformed SQL
+			$errors[] = RuleErrorBuilder::message(
+				sprintf(
+					'Cannot validate SELECT columns against PHPDoc (line %d) - SQL query (line %d) appears malformed (missing FROM clause?)',
+					$reportLine,
+					$sqlLine
+				)
+			)->line($reportLine)->build();
+			return $errors;
 		}
 
 		// Compare columns with object shape properties
@@ -525,7 +607,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * Extract prepare() statements from the method
 	 * Now supports both direct strings and variables
 	 *
-	 * @return array<array{sql: string, line: int}>
+	 * @return array<array{sql: string, line: int, var?: string}>
 	 */
 	private function extractPrepareStatementsFromMethod(ClassMethod $method): array
 	{
@@ -544,7 +626,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Recursively find prepare() calls in statements
 	 *
-	 * @param array<array{sql: string, line: int}> &$statements
+	 * @param array<array{sql: string, line: int, var: string|null}> &$statements
 	 * @param array<string, string> $sqlVariables
 	 */
 	private function findPrepareCallsRecursive(Node $node, array &$statements, array $sqlVariables): void
@@ -577,6 +659,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					$statements[] = [
 						'sql' => $sql,
 						'line' => $node->getStartLine(),
+						'var' => null, // No variable assignment
 					];
 				}
 			}
@@ -595,6 +678,12 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				) {
 					$firstArg = $methodCall->getArgs()[0]->value;
 					$sql = null;
+					$assignedVar = null;
+
+					// Capture the variable name being assigned to
+					if ($assign->var instanceof Variable && is_string($assign->var->name)) {
+						$assignedVar = $assign->var->name;
+					}
 
 					// Case 1: Direct string literal
 					if ($firstArg instanceof String_) {
@@ -612,6 +701,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						$statements[] = [
 							'sql' => $sql,
 							'line' => $node->getStartLine(),
+							'var' => $assignedVar, // Track which variable this SQL is assigned to
 						];
 					}
 				}

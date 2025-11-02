@@ -43,6 +43,10 @@ class ValidateSelectColumnsMatchPhpDocRuleTest extends RuleTestCase
                 'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 76) has "nam" - possible typo?',
                 79,
             ],
+            [
+                'SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line 86)',
+                94,
+            ],
         ]);
     }
 
