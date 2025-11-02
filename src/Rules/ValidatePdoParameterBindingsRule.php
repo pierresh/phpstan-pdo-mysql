@@ -459,7 +459,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 						if ($firstArg instanceof Node\Expr\Array_) {
 							$params = [];
 							foreach ($firstArg->items as $item) {
-								if ($item === null) {
+								// Skip null items (e.g., from trailing commas)
+								if (!$item instanceof Node\Expr\ArrayItem) {
 									continue;
 								}
 								if ($item->key instanceof String_) {
@@ -618,7 +619,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 					if ($firstArg instanceof Node\Expr\Array_) {
 						$params = [];
 						foreach ($firstArg->items as $item) {
-							if ($item === null) {
+							// Skip null items (e.g., from trailing commas)
+							if (!$item instanceof Node\Expr\ArrayItem) {
 								continue;
 							}
 							if ($item->key instanceof String_) {
