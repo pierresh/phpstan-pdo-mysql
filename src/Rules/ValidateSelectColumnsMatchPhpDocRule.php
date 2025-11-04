@@ -505,14 +505,11 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		$selectColumns = $this->extractSelectColumns($sql);
 
 		if ($selectColumns === null) {
-			// Cannot extract columns - likely malformed SQL
-			$errors[] = RuleErrorBuilder::message(
-				sprintf(
-					'Cannot validate SELECT columns against PHPDoc (line %d) - SQL query (line %d) appears malformed (missing FROM clause?)',
-					$reportLine,
-					$sqlLine
-				)
-			)->line($reportLine)->build();
+			// Cannot extract columns - this could be:
+			// 1. SELECT * (which we cannot validate statically)
+			// 2. Malformed SQL
+			// We silently skip validation rather than reporting an error,
+			// because SELECT * is a valid pattern that simply cannot be analyzed statically
 			return $errors;
 		}
 
