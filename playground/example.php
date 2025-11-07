@@ -50,5 +50,25 @@ class UserRepository
         $user = $stmt->fetch();
     }
 
+    // ✅ SELECT * is allowed (cannot be validated statically)
+    public function selectStarAllowed(): void
+    {
+        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = :id");
+        $stmt->execute(['id' => 1]);
+
+        /** @var object{id: int, name: string, email: string} */
+        $user = $stmt->fetch();
+    }
+
+    // ✅ SELECT table.* is allowed (cannot be validated statically)
+    public function selectTableStarAllowed(): void
+    {
+        $stmt = $this->db->prepare("SELECT users.* FROM users WHERE id = :id");
+        $stmt->execute(['id' => 1]);
+
+        /** @var object{id: int, name: string, email: string} */
+        $user = $stmt->fetch();
+    }
+
     // Try adding your own examples below!
 }

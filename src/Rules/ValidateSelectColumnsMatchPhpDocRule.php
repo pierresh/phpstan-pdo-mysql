@@ -721,9 +721,10 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		$selectPart = $matches[1];
 
-		// Handle SELECT *
-		if (trim($selectPart) === '*') {
-			return null; // Can't validate SELECT *
+		// Handle SELECT * or SELECT table.*
+		$trimmedSelect = trim($selectPart);
+		if ($trimmedSelect === '*' || preg_match('/\w+\.\*/', $trimmedSelect)) {
+			return null; // Can't validate SELECT * or table.*
 		}
 
 		// Split by comma

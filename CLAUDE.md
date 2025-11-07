@@ -153,7 +153,7 @@ Follow this format for consistency:
 ## Common Gotchas
 
 1. **Case sensitivity**: MySQL column names are validated case-sensitively
-2. **SELECT * behavior**: Rules skip validation for `SELECT *` queries
+2. **SELECT * behavior**: Rules skip validation for `SELECT *` and `SELECT table.*` queries (cannot be validated statically)
 3. **Execute array behavior**: Passing an array to `execute()` ignores previous `bindValue()` calls
 4. **Extra columns allowed**: Having more columns in SELECT than in PHPDoc is valid
 5. **Long queries**: Queries over 10,000 characters are skipped for performance

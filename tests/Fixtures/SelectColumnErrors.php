@@ -120,4 +120,15 @@ class SelectColumnErrors
         /** @var object{id: int, name: string, email: string} */
         $user = $stmt->fetch();
     }
+
+    public function selectTableStarShouldNotError(): void
+    {
+        // SELECT table.* cannot be validated statically, so it should be silently skipped
+        // This should NOT produce an error even with single-line PHPDoc
+        $stmt = $this->db->prepare("SELECT users.*, other_col FROM users WHERE id = :id");
+        $stmt->execute(['id' => 1]);
+
+        /** @var object{id: int, name: string, email: string} */
+        $user = $stmt->fetch();
+    }
 }
