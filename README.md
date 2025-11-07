@@ -37,9 +37,9 @@ Catches syntax errors in SQL queries:
 // ❌ Incomplete query
 $stmt = $db->query("SELECT * FROM");
 ```
-```diff
-- Error: SQL syntax error in query(): An expression was expected.
-```
+
+> [!CAUTION]
+> Error: SQL syntax error in query(): An expression was expected.
 
 Works with both direct strings and variables:
 
@@ -47,9 +47,9 @@ Works with both direct strings and variables:
 $sql = "SELECT * FROM";
 $stmt = $db->query($sql);
 ```
-```diff
-- Error: SQL syntax error in query(): An expression was expected.
-```
+
+> [!CAUTION]
+> Error: SQL syntax error in query(): An expression was expected.
 
 ```php
 // ✅ Valid SQL
@@ -65,28 +65,28 @@ Ensures all SQL placeholders have corresponding bindings:
 $stmt = $db->prepare("SELECT * FROM users WHERE id = :id AND name = :name");
 $stmt->execute(['id' => 1]); // Missing :name
 ```
-```diff
-- Error: Missing parameter :name in execute() array - SQL query (line X) expects this parameter
-```
+
+> [!CAUTION]
+> Error: Missing parameter :name in execute() array - SQL query (line X) expects this parameter
 
 ```php
 // ❌ Extra parameter
 $stmt = $db->prepare("SELECT * FROM users WHERE id = :id");
 $stmt->execute(['id' => 1, 'extra' => 'unused']);
 ```
-```diff
-- Error: Parameter :extra in execute() array is not used in SQL query (line X)
-```
+
+> [!CAUTION]
+> Error: Parameter :extra in execute() array is not used in SQL query (line X)
 
 ```php
 // ❌ Wrong parameter name
 $stmt = $db->prepare("SELECT * FROM users WHERE id = :user_id");
 $stmt->execute(['id' => 1]); // Should be :user_id
 ```
-```diff
-- Error: Missing parameter :user_id in execute() array - SQL query (line X) expects this parameter
-- Error: Parameter :id in execute() array is not used in SQL query (line X)
-```
+
+> [!CAUTION]
+> Error: Missing parameter :user_id in execute() array - SQL query (line X) expects this parameter
+> Error: Parameter :id in execute() array is not used in SQL query (line X)
 
 ```php
 // ✅ Valid bindings
@@ -101,10 +101,10 @@ $stmt = $db->prepare("SELECT * FROM users WHERE id = :id");
 $stmt->bindValue(':id', 1); // This is ignored!
 $stmt->execute(['name' => 'John']); // Wrong parameter
 ```
-```diff
-- Error: Missing parameter :id in execute() array - SQL query (line X) expects this parameter
-- Error: Parameter :name in execute() array is not used in SQL query (line X)
-```
+
+> [!CAUTION]
+> Error: Missing parameter :id in execute() array - SQL query (line X) expects this parameter
+> Error: Parameter :name in execute() array is not used in SQL query (line X)
 
 ### 3. SELECT Column Validation
 
@@ -118,9 +118,9 @@ $stmt->execute(['id' => 1]);
 /** @var object{id: int, name: string, email: string} */
 $user = $stmt->fetch();
 ```
-```diff
-- Error: SELECT column mismatch: PHPDoc expects property "name" but SELECT (line X) has "nam" - possible typo?
-```
+
+> [!CAUTION]
+> Error: SELECT column mismatch: PHPDoc expects property "name" but SELECT (line X) has "nam" - possible typo?
 
 ```php
 // ❌ Missing column
@@ -130,29 +130,24 @@ $stmt->execute(['id' => 1]);
 /** @var object{id: int, name: string, email: string} */
 $user = $stmt->fetch();
 ```
-```diff
-- Error: SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line X)
-```
+
+> [!CAUTION]
+> Error: SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line X)
 
 ```php
-// ❌ Extra column
-$stmt = $db->prepare("SELECT id, name, email, created_at FROM users WHERE id = :id");
-$stmt->execute(['id' => 1]);
-
-/** @var object{id: int, name: string, email: string} */
-$user = $stmt->fetch();
-```
-```diff
-- Error: SELECT column extra: SELECT (line X) has column "created_at" but it is not in the PHPDoc object shape
-```
-
-```php
-// ✅ Valid columns
+// ✅ Valid columns (extra columns in SELECT are allowed)
 $stmt = $db->prepare("SELECT id, name, email FROM users WHERE id = :id");
 $stmt->execute(['id' => 1]);
 
 /** @var object{id: int, name: string, email: string} */
 $user = $stmt->fetch();
+
+// ✅ Also valid - selecting extra columns is fine
+$stmt = $db->prepare("SELECT id, name, email, created_at FROM users WHERE id = :id");
+$stmt->execute(['id' => 1]);
+
+/** @var object{id: int, name: string, email: string} */
+$user = $stmt->fetch(); // No error - extra columns are ignored
 ```
 
 Supports `@phpstan-type` aliases:
@@ -172,10 +167,11 @@ class UserRepository
         /** @var User */
         $user = $stmt->fetch();
 ```
-```diff
--       Error: SELECT column mismatch: PHPDoc expects property "name" but SELECT (line X) has "nam" - possible typo?
--       Error: SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line X)
-```
+
+> [!CAUTION]
+> Error: SELECT column mismatch: PHPDoc expects property "name" but SELECT (line X) has "nam" - possible typo?
+> Error: SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line X)
+
 ```php
     }
 }

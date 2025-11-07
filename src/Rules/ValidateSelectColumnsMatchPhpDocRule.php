@@ -519,7 +519,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		// Check for missing columns (in PHPDoc but not in SELECT)
 		$missingInSelect = array_diff($expectedProps, $actualColumns);
-		// Check for extra columns (in SELECT but not in PHPDoc)
+		// Calculate extra columns for typo detection (but we won't report them as errors)
 		$extraInSelect = array_diff($actualColumns, $expectedProps);
 		// Check for typos
 		$typos = $this->findPotentialTypos($missingInSelect, $extraInSelect);
@@ -540,26 +540,6 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						'SELECT column missing: PHPDoc expects property "%s" but it is not in the SELECT query (line %d)',
 						$prop,
 						$sqlLine
-					)
-				)->line($reportLine)->build();
-			}
-		}
-
-		foreach ($extraInSelect as $col) {
-			$isTypo = false;
-			foreach ($typos as $suggestion) {
-				if ($suggestion === $col) {
-					$isTypo = true;
-					break;
-				}
-			}
-
-			if (!$isTypo) {
-				$errors[] = RuleErrorBuilder::message(
-					sprintf(
-						'SELECT column extra: SELECT (line %d) has column "%s" but it is not in the PHPDoc object shape',
-						$sqlLine,
-						$col
 					)
 				)->line($reportLine)->build();
 			}

@@ -28,10 +28,6 @@ class ValidateSelectColumnsMatchPhpDocRuleTest extends RuleTestCase
                 33,
             ],
             [
-                'SELECT column extra: SELECT (line 39) has column "created_at" but it is not in the PHPDoc object shape',
-                42,
-            ],
-            [
                 'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 48) has "nam" - possible typo?',
                 51,
             ],
