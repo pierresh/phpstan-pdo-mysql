@@ -464,7 +464,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 									continue;
 								}
 								if ($item->key instanceof String_) {
-									$params[] = $item->key->value;
+									// Strip leading ':' to normalize parameter names
+									$params[] = ltrim($item->key->value, ':');
 								}
 							}
 						}
@@ -624,7 +625,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 								continue;
 							}
 							if ($item->key instanceof String_) {
-								$params[] = $item->key->value;
+								// Strip leading ':' to normalize parameter names
+								$params[] = ltrim($item->key->value, ':');
 							}
 						}
 					}

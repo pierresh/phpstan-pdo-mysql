@@ -57,4 +57,32 @@ class ParameterBindingErrors
         $stmt = $this->db->prepare($sql);
         $stmt->execute(['id' => 1]); // Wrong parameter name
     }
+
+    public function validBindingWithColonPrefix(): void
+    {
+        // This should NOT report any error - using : prefix in execute() array is valid
+        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = :id AND name = :name");
+        $stmt->execute([':id' => 1, ':name' => 'John']);
+    }
+
+    public function missingParameterWithColonPrefix(): void
+    {
+        // SQL has :id and :name, but execute only provides :id (with : prefix)
+        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = :id AND name = :name");
+        $stmt->execute([':id' => 1]); // Missing :name
+    }
+
+    public function extraParameterWithColonPrefix(): void
+    {
+        // SQL has :id, but execute provides :id and :extra (with : prefix)
+        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = :id");
+        $stmt->execute([':id' => 1, ':extra' => 'unused']); // Extra :extra
+    }
+
+    public function mixedPrefixStyle(): void
+    {
+        // This should NOT report any error - mixing styles is valid
+        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = :id AND name = :name");
+        $stmt->execute([':id' => 1, 'name' => 'John']); // Mixed: :id with prefix, name without
+    }
 }
