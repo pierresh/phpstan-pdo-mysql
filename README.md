@@ -212,6 +212,10 @@ These rules are designed to be fast:
 - Skips very long queries (>10,000 characters)
 - Gracefully handles missing dependencies
 
+## Playground
+
+Want to try the extension quickly? Open `playground/example.php` in your IDE with a PHPStan plugin installed. You'll see errors highlighted in real-time as you edit the code.
+
 ## Development
 
 To contribute to this project:
