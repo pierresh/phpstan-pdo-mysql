@@ -332,26 +332,26 @@ class ValidatePdoParameterBindingsRule implements Rule
 						// Use a placeholder SQL for line reference purposes
 						$sql = '[interpolated string]';
 
-						if (count($placeholders) > 0) {
-							$preparations[$propertyName] = [
-								'placeholders' => $placeholders,
-								'line' => $stmt->getStartLine(),
-								'sql' => $sql,
-							];
-						}
+						// Always add to preparations, even if no placeholders
+						// This allows us to detect extra parameters in execute()
+						$preparations[$propertyName] = [
+							'placeholders' => $placeholders,
+							'line' => $stmt->getStartLine(),
+							'sql' => $sql,
+						];
 						continue;
 					}
 
 					if ($sql !== null) {
 						$placeholders = $this->extractPlaceholders($sql);
 
-						if (count($placeholders) > 0) {
-							$preparations[$propertyName] = [
-								'placeholders' => $placeholders,
-								'line' => $stmt->getStartLine(),
-								'sql' => $sql,
-							];
-						}
+						// Always add to preparations, even if no placeholders
+						// This allows us to detect extra parameters in execute()
+						$preparations[$propertyName] = [
+							'placeholders' => $placeholders,
+							'line' => $stmt->getStartLine(),
+							'sql' => $sql,
+						];
 					}
 				}
 			}
@@ -586,28 +586,28 @@ class ValidatePdoParameterBindingsRule implements Rule
 					// Use a placeholder SQL for line reference purposes
 					$sql = '[interpolated string]';
 
-					if (count($placeholders) > 0) {
-						$preparations[] = [
-							'var' => '$' . $assign->var->name,
-							'sql' => $sql,
-							'line' => $stmt->getStartLine(),
-							'placeholders' => $placeholders,
-						];
-					}
+					// Always add to preparations, even if no placeholders
+					// This allows us to detect extra parameters in execute()
+					$preparations[] = [
+						'var' => '$' . $assign->var->name,
+						'sql' => $sql,
+						'line' => $stmt->getStartLine(),
+						'placeholders' => $placeholders,
+					];
 					continue;
 				}
 
 				if ($sql !== null) {
 					$placeholders = $this->extractPlaceholders($sql);
 
-					if (count($placeholders) > 0) {
-						$preparations[] = [
-							'var' => '$' . $assign->var->name,
-							'sql' => $sql,
-							'line' => $stmt->getStartLine(),
-							'placeholders' => $placeholders,
-						];
-					}
+					// Always add to preparations, even if no placeholders
+					// This allows us to detect extra parameters in execute()
+					$preparations[] = [
+						'var' => '$' . $assign->var->name,
+						'sql' => $sql,
+						'line' => $stmt->getStartLine(),
+						'placeholders' => $placeholders,
+					];
 				}
 			}
 		}

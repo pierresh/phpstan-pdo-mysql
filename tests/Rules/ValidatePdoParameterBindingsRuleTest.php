@@ -59,6 +59,14 @@ class ValidatePdoParameterBindingsRuleTest extends RuleTestCase
                 'Parameter :id in execute() array is not used in SQL query (line 93)',
                 94,
             ],
+            [
+                'Parameter :id in execute() array is not used in SQL query (line 100)',
+                101,
+            ],
+            [
+                'Parameter :name in execute() array is not used in SQL query (line 100)',
+                101,
+            ],
         ]);
     }
 

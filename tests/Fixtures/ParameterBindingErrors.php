@@ -93,4 +93,11 @@ class ParameterBindingErrors
         $stmt = $this->db->prepare("SELECT $select FROM users WHERE id = :user_id");
         $stmt->execute(['id' => 1]); // Wrong parameter name
     }
+
+    public function extraParametersWithNoPlaceholders(): void
+    {
+        // SQL has NO placeholders, but execute provides parameters
+        $stmt = $this->db->prepare("SELECT id, name FROM users");
+        $stmt->execute(['id' => 1, 'name' => 'test']); // Extra parameters!
+    }
 }
