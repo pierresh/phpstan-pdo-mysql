@@ -125,17 +125,48 @@ vendor/bin/phpstan analyze tests/Fixtures/ParameterBindingErrors.php -c extensio
 
 ## Development Guidelines
 
-### When Adding Features
-1. Start with the test fixture - add examples with intentional errors
-2. Update the test expectations
-3. Implement the rule logic
-4. Run tests to verify
+**IMPORTANT: This project follows Test-Driven Development (TDD)**
 
-### When Fixing Bugs
-1. Add a failing test case that reproduces the bug
-2. Fix the rule implementation
-3. Verify all tests pass
-4. Update README.md examples if needed
+All development should follow the TDD cycle:
+1. **Write the test first** - Create a failing test that defines the desired behavior
+2. **Implement the feature** - Write the minimum code to make the test pass
+3. **Verify all tests pass** - Ensure no regressions
+4. **Refactor if needed** - Improve code quality while keeping tests green
+
+### When Adding Features (TDD Approach)
+1. **Write failing test first**: Add a new method to the fixture file with the intentional error/behavior
+2. **Update test expectations**: Add the expected error message and line number to the test
+3. **Run test to confirm it fails**: Verify the test correctly identifies the missing behavior
+4. **Implement the rule logic**: Write code to make the test pass
+5. **Run all tests**: Ensure the new feature works and no regressions occurred
+6. **Update documentation**: Add examples to README.md if needed
+
+### When Fixing Bugs (TDD Approach)
+1. **Write failing regression test first**: Create a test case that reproduces the bug
+2. **Verify the test fails**: Confirm the test correctly exposes the bug
+3. **Fix the rule implementation**: Modify the code to make the test pass
+4. **Verify all tests pass**: Ensure the fix works and didn't break anything
+5. **Update documentation**: Add the bug scenario to README.md examples if relevant
+
+Example TDD workflow:
+```php
+// Step 1: Add to tests/Fixtures/ParameterBindingErrors.php
+public function newBugCase(): void
+{
+    $stmt = $this->db->prepare("SELECT id FROM users");
+    $stmt->execute(['extra' => 'param']); // Should error but doesn't
+}
+
+// Step 2: Add to ValidatePdoParameterBindingsRuleTest.php
+[
+    'Parameter :extra in execute() array is not used in SQL query (line X)',
+    Y,
+],
+
+// Step 3: Run test - it fails ✓
+// Step 4: Fix the code in ValidatePdoParameterBindingsRule.php
+// Step 5: Run test - it passes ✓
+```
 
 ### Performance Considerations
 - Early bailout for non-SQL code (check for SQL keywords first)
