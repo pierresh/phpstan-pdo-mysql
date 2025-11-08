@@ -85,4 +85,12 @@ class ParameterBindingErrors
         $stmt = $this->db->prepare("SELECT * FROM users WHERE id = :id AND name = :name");
         $stmt->execute([':id' => 1, 'name' => 'John']); // Mixed: :id with prefix, name without
     }
+
+    public function interpolatedStringMismatch(): void
+    {
+        // SQL in interpolated string with parameter mismatch
+        $select = 'id, name';
+        $stmt = $this->db->prepare("SELECT $select FROM users WHERE id = :user_id");
+        $stmt->execute(['id' => 1]); // Wrong parameter name
+    }
 }

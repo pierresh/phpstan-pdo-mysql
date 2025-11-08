@@ -10,6 +10,8 @@ use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Scalar\Encapsed;
+use PhpParser\Node\Scalar\EncapsedStringPart;
 use PHPStan\Analyser\Scope;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
@@ -324,6 +326,21 @@ class ValidatePdoParameterBindingsRule implements Rule
 							$sql = $sqlVariables[$varName];
 						}
 					}
+					// Case 3: Interpolated string (e.g., "SELECT $col FROM ...")
+					elseif ($firstArg instanceof Encapsed) {
+						$placeholders = $this->extractPlaceholdersFromEncapsedString($firstArg);
+						// Use a placeholder SQL for line reference purposes
+						$sql = '[interpolated string]';
+
+						if (count($placeholders) > 0) {
+							$preparations[$propertyName] = [
+								'placeholders' => $placeholders,
+								'line' => $stmt->getStartLine(),
+								'sql' => $sql,
+							];
+						}
+						continue;
+					}
 
 					if ($sql !== null) {
 						$placeholders = $this->extractPlaceholders($sql);
@@ -563,6 +580,22 @@ class ValidatePdoParameterBindingsRule implements Rule
 						$sql = $sqlVariables[$varName];
 					}
 				}
+				// Case 3: Interpolated string (e.g., "SELECT $col FROM ...")
+				elseif ($firstArg instanceof Encapsed) {
+					$placeholders = $this->extractPlaceholdersFromEncapsedString($firstArg);
+					// Use a placeholder SQL for line reference purposes
+					$sql = '[interpolated string]';
+
+					if (count($placeholders) > 0) {
+						$preparations[] = [
+							'var' => '$' . $assign->var->name,
+							'sql' => $sql,
+							'line' => $stmt->getStartLine(),
+							'placeholders' => $placeholders,
+						];
+					}
+					continue;
+				}
 
 				if ($sql !== null) {
 					$placeholders = $this->extractPlaceholders($sql);
@@ -758,5 +791,28 @@ class ValidatePdoParameterBindingsRule implements Rule
 		}
 
 		return false;
+	}
+
+	/**
+	 * Extract placeholders from an encapsed (interpolated) string
+	 * Example: "SELECT $col FROM users WHERE id = :id AND name = :name"
+	 * This extracts placeholders from the literal parts of the string
+	 *
+	 * @return array<string>
+	 */
+	private function extractPlaceholdersFromEncapsedString(Encapsed $node): array
+	{
+		$placeholders = [];
+
+		foreach ($node->parts as $part) {
+			// Only process literal string parts
+			if ($part instanceof EncapsedStringPart) {
+				$literalPart = $part->value;
+				$partPlaceholders = $this->extractPlaceholders($literalPart);
+				$placeholders = array_merge($placeholders, $partPlaceholders);
+			}
+		}
+
+		return array_values(array_unique($placeholders));
 	}
 }
