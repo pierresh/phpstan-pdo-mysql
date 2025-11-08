@@ -39,7 +39,18 @@ $stmt = $db->query("SELECT * FROM");
 ```
 
 > [!CAUTION]
-> Error: SQL syntax error in query(): An expression was expected.
+> Error: SQL syntax error in query(): Expected token NAME ~RESERVED, but end of query found instead.
+
+```php
+// ❌ Trailing comma in VALUES
+$stmt = $db->prepare("
+    INSERT INTO users (id, name, email)
+    VALUES (1, 'John', 'john@example.com',)
+");
+```
+
+> [!CAUTION]
+> Error: SQL syntax error in prepare(): Expected token NAME|VALUE, but token SYMBOL with value ")" found instead.
 
 Works with both direct strings and variables:
 
@@ -49,7 +60,7 @@ $stmt = $db->query($sql);
 ```
 
 > [!CAUTION]
-> Error: SQL syntax error in query(): An expression was expected.
+> Error: SQL syntax error in query(): Expected token NAME ~RESERVED, but end of query found instead.
 
 ```php
 // ✅ Valid SQL
@@ -181,7 +192,7 @@ class UserRepository
 
 - PHP 8.1+
 - PHPStan 1.10+
-- phpmyadmin/sql-parser 5.0+
+- SQLFTW 0.1+ (SQL syntax validation)
 
 ## How It Works
 

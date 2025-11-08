@@ -25,4 +25,13 @@ class SqlSyntaxErrors
         $stmt = $this->db->prepare("SELECT id, name FROM users WHERE id = :id");
         $stmt->execute(['id' => 1]);
     }
+
+    public function trailingCommaInValues(): void
+    {
+        // Trailing comma in VALUES list
+        $stmt = $this->db->prepare("
+            INSERT INTO users (id, name, email)
+            VALUES (1, 'John', 'john@example.com',)
+        ");
+    }
 }

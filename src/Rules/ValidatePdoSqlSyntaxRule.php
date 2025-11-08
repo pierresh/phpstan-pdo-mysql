@@ -11,9 +11,8 @@ use PhpParser\Node\Scalar\String_;
 use PHPStan\Analyser\Scope;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
-use PhpMyAdmin\SqlParser\Lexer;
-use PhpMyAdmin\SqlParser\Parser;
-use PhpMyAdmin\SqlParser\Utils\Error as ParserError;
+use Pierresh\PhpStanPdoMysql\SqlLinter\SqlLinterInterface;
+use Pierresh\PhpStanPdoMysql\SqlLinter\SqlFtwAdapter;
 
 /**
  * This rule validates SQL syntax in PDO prepare() and query() method calls.
@@ -27,6 +26,13 @@ use PhpMyAdmin\SqlParser\Utils\Error as ParserError;
  */
 class ValidatePdoSqlSyntaxRule implements Rule
 {
+	private SqlLinterInterface $linter;
+
+	public function __construct(?SqlLinterInterface $linter = null)
+	{
+		$this->linter = $linter ?? new SqlFtwAdapter();
+	}
+
 	public function getNodeType(): string
 	{
 		return ClassMethod::class;
@@ -233,36 +239,18 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 */
 	private function validateSqlQuery(string $sqlQuery, int $line, string $methodName): array
 	{
-		// Check if phpmyadmin/sql-parser is installed
-		if (!class_exists(Lexer::class)) {
+		// Check if linter is available
+		if (!$this->linter->isAvailable()) {
 			// Silently skip if not installed - don't show warnings
-			return [];
-		}
-
-		// Skip validation for very long queries to save resources
-		if (mb_strlen($sqlQuery) > 10000) {
 			return [];
 		}
 
 		$errors = [];
 
-		// Parse the SQL query
-		$lexer = new Lexer($sqlQuery);
-		$parser = new Parser($lexer->list);
+		// Validate the SQL query using the linter
+		$linterErrors = $this->linter->validate($sqlQuery);
 
-		// Get parsing errors
-		$parserErrors = ParserError::get([$lexer, $parser]);
-
-		foreach ($parserErrors as $error) {
-			// $error is an array: [message, token, position, ...]
-			$message = (string) $error[0];
-			$token = (string) ($error[2] ?? '');
-
-			$errorMessage = $message;
-			if ($token !== '') {
-				$errorMessage .= sprintf(' (near %s)', $token);
-			}
-
+		foreach ($linterErrors as $errorMessage) {
 			$errors[] = RuleErrorBuilder::message(
 				sprintf(
 					'SQL syntax error in %s(): %s',

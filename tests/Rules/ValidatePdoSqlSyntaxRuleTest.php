@@ -20,8 +20,12 @@ class ValidatePdoSqlSyntaxRuleTest extends RuleTestCase
     {
         $this->analyse([__DIR__ . '/../Fixtures/SqlSyntaxErrors.php'], [
             [
-                'SQL syntax error in query(): An expression was expected.',
+                'SQL syntax error in query(): Expected token NAME ~RESERVED, but end of query found instead.',
                 19,
+            ],
+            [
+                'SQL syntax error in prepare(): Expected token NAME|VALUE, but token SYMBOL with value ")" (1) found instead.',
+                32,
             ],
         ]);
     }

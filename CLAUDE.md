@@ -11,17 +11,21 @@ This project validates PDO code without requiring a database connection, catchin
 ## Core Philosophy
 
 This extension performs **static analysis only** - no database connection required. All validation is done by:
-1. Parsing SQL strings using phpmyadmin/sql-parser
+1. Parsing SQL strings using SQLFTW (a strict MySQL parser that catches syntax errors)
 2. Analyzing AST nodes to track SQL queries through variables
 3. Validating parameter bindings and SELECT columns against PHPDoc types
 
 ## Project Structure
 
 ```
-src/Rules/                           # PHPStan rule implementations
-  ValidatePdoSqlSyntaxRule.php      # Rule 1: Validates MySQL syntax
-  ValidatePdoParameterBindingsRule.php  # Rule 2: Validates PDO parameter bindings
-  ValidateSelectColumnsMatchPhpDocRule.php  # Rule 3: Validates SELECT columns vs PHPDoc
+src/
+  Rules/                           # PHPStan rule implementations
+    ValidatePdoSqlSyntaxRule.php      # Rule 1: Validates MySQL syntax
+    ValidatePdoParameterBindingsRule.php  # Rule 2: Validates PDO parameter bindings
+    ValidateSelectColumnsMatchPhpDocRule.php  # Rule 3: Validates SELECT columns vs PHPDoc
+  SqlLinter/                       # SQL parser adapters
+    SqlLinterInterface.php            # Interface for SQL linter adapters
+    SqlFtwAdapter.php                 # SQLFTW implementation
 
 tests/                               # PHPUnit tests
   Rules/                             # Test cases for each rule
@@ -192,7 +196,7 @@ Follow this format for consistency:
 ## Dependencies
 
 - **phpstan/phpstan**: Static analysis framework
-- **phpmyadmin/sql-parser**: MySQL query parser (no database needed)
+- **sqlftw/sqlftw**: Strict MySQL query parser (detects syntax errors, no database needed)
 - **phpunit/phpunit**: Testing framework
 - **spatie/phpunit-watcher**: Auto-run tests on file changes
 
@@ -206,10 +210,56 @@ includes:
     - vendor/pierresh/phpstan-pdo-mysql/extension.neon
 ```
 
+## SQL Linter Adapter Pattern
+
+The SQL syntax validation uses an adapter pattern to make it easy to switch between different SQL parsers:
+
+### Architecture
+
+```
+SqlLinterInterface (interface)
+  ├─ validate(string $sqlQuery): array<string>
+  └─ isAvailable(): bool
+
+SqlFtwAdapter (implementation)
+  └─ Uses SQLFTW library for strict MySQL parsing
+```
+
+### Adding a New SQL Parser
+
+To add support for a different SQL parser (e.g., for PostgreSQL):
+
+1. Create a new adapter class implementing `SqlLinterInterface`:
+```php
+class PostgreSqlAdapter implements SqlLinterInterface
+{
+    public function validate(string $sqlQuery): array
+    {
+        // Your parser logic here
+        return $errors;
+    }
+
+    public function isAvailable(): bool
+    {
+        return class_exists(YourParser::class);
+    }
+}
+```
+
+2. Inject it into ValidatePdoSqlSyntaxRule:
+```php
+$rule = new ValidatePdoSqlSyntaxRule(new PostgreSqlAdapter());
+```
+
+The adapter pattern ensures:
+- Clean separation between PHPStan rule logic and SQL parser implementation
+- Easy switching between parsers without changing rule code
+- Testability through dependency injection
+
 ## Future Enhancement Ideas
 
 - Support for prepared statements across multiple files/classes
 - Validation of column types (INT, VARCHAR, etc.) against PHPDoc
-- Support for other SQL dialects (PostgreSQL, SQLite)
+- Support for other SQL dialects (PostgreSQL, SQLite) via new adapters
 - Detection of SQL injection vulnerabilities
 - Support for query builders (Doctrine, Eloquent)
