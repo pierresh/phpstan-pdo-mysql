@@ -161,7 +161,7 @@ $stmt = $db->prepare("SELECT id, name, email, created_at FROM users WHERE id = :
 $stmt->execute(['id' => 1]);
 
 /** @var object{id: int, name: string, email: string} */
-$user = $stmt->fetch(); // No error - extra columns are ignored
+$user = $stmt->fetch(); // No error - extra column `created_at` is ignored
 ```
 
 Supports `@phpstan-type` aliases:
@@ -269,6 +269,13 @@ $stmt = $db->prepare($sql);
 ```
 
 The rules also handle SQL queries prepared in constructors and used in other methods.
+
+## Known Limitations
+
+- SQL queries with variable interpolation (e.g., `"SELECT $column FROM table"`) cannot be validated
+- `SELECT *` and `SELECT table.*` queries cannot be validated for column matching (no way to know columns statically)
+- Very long queries (>10,000 characters) are skipped for performance
+- Cross-file SQL tracking is limited to class properties
 
 ## Performance
 
