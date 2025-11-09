@@ -65,7 +65,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 		// Extract all property preparations (e.g., $this->query = $db->prepare(...))
 		$propertyPreparations = $this->extractPropertyPreparations($class);
 
-		if (count($propertyPreparations) === 0) {
+		if ($propertyPreparations === []) {
 			return [];
 		}
 
@@ -89,9 +89,9 @@ class ValidatePdoParameterBindingsRule implements Rule
 			}
 
 			// Validate each execute() call separately
-			foreach ($executes as $executeInfo) {
-				$executeLine = $executeInfo['line'];
-				$executeParams = $executeInfo['params'];
+			foreach ($executes as $execute) {
+				$executeLine = $execute['line'];
+				$executeParams = $execute['params'];
 
 				// If execute() is called with an array, validate only those parameters
 				// and ignore any bindValue/bindParam calls
@@ -168,8 +168,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 	{
 		$errors = [];
 
-		foreach ($class->getMethods() as $method) {
-			$errors = array_merge($errors, $this->validateMethodLocalVariables($method));
+		foreach ($class->getMethods() as $classMethod) {
+			$errors = array_merge($errors, $this->validateMethodLocalVariables($classMethod));
 		}
 
 		return $errors;
@@ -180,26 +180,26 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array<\PHPStan\Rules\RuleError>
 	 */
-	private function validateMethodLocalVariables(ClassMethod $method): array
+	private function validateMethodLocalVariables(ClassMethod $classMethod): array
 	{
 		$errors = [];
 
 		// Extract all prepare() statements for local variables
-		$preparations = $this->extractLocalVariablePreparations($method);
+		$preparations = $this->extractLocalVariablePreparations($classMethod);
 
-		foreach ($preparations as $prep) {
-			$varName = $prep['var'];
-			$placeholders = $prep['placeholders'];
-			$prepareLine = $prep['line'];
+		foreach ($preparations as $preparation) {
+			$varName = $preparation['var'];
+			$placeholders = $preparation['placeholders'];
+			$prepareLine = $preparation['line'];
 
 			// Find execute() calls for this variable
-			$executeCalls = $this->extractLocalVariableExecuteCalls($method, $varName);
+			$executeCalls = $this->extractLocalVariableExecuteCalls($classMethod, $varName);
 
 			// Extract bindValue/bindParam calls
-			$boundParams = $this->extractLocalVariableBindings($method, $varName);
+			$boundParams = $this->extractLocalVariableBindings($classMethod, $varName);
 
 			// If no execute calls found, skip validation
-			if (count($executeCalls) === 0) {
+			if ($executeCalls === []) {
 				continue;
 			}
 
@@ -273,11 +273,11 @@ class ValidatePdoParameterBindingsRule implements Rule
 	{
 		$preparations = [];
 
-		foreach ($class->getMethods() as $method) {
+		foreach ($class->getMethods() as $classMethod) {
 			// First, extract SQL variables in this method
-			$sqlVariables = $this->extractSqlVariablesFromMethod($method);
+			$sqlVariables = $this->extractSqlVariablesFromMethod($classMethod);
 
-			foreach ($method->getStmts() ?? [] as $stmt) {
+			foreach ($classMethod->getStmts() ?? [] as $stmt) {
 				if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof Assign) {
 					$assign = $stmt->expr;
 
@@ -287,9 +287,13 @@ class ValidatePdoParameterBindingsRule implements Rule
 					}
 
 					$propertyFetch = $assign->var;
-					if (!$propertyFetch->var instanceof Variable || $propertyFetch->var->name !== 'this') {
-						continue;
-					}
+     if (!$propertyFetch->var instanceof Variable) {
+         continue;
+     }
+
+     if ($propertyFetch->var->name !== 'this') {
+         continue;
+     }
 
 					if (!$propertyFetch->name instanceof Node\Identifier) {
 						continue;
@@ -303,12 +307,16 @@ class ValidatePdoParameterBindingsRule implements Rule
 					}
 
 					$methodCall = $assign->expr;
-					if (!$methodCall->name instanceof Node\Identifier || $methodCall->name->toString() !== 'prepare') {
-						continue;
-					}
+     if (!$methodCall->name instanceof Node\Identifier) {
+         continue;
+     }
+
+     if ($methodCall->name->toString() !== 'prepare') {
+         continue;
+     }
 
 					// Extract SQL string
-					if (count($methodCall->getArgs()) === 0) {
+					if ($methodCall->getArgs() === []) {
 						continue;
 					}
 
@@ -369,8 +377,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 	{
 		$bindings = [];
 
-		foreach ($class->getMethods() as $method) {
-			foreach ($method->getStmts() ?? [] as $stmt) {
+		foreach ($class->getMethods() as $classMethod) {
+			foreach ($classMethod->getStmts() ?? [] as $stmt) {
 				if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof MethodCall) {
 					$methodCall = $stmt->expr;
 
@@ -390,9 +398,13 @@ class ValidatePdoParameterBindingsRule implements Rule
 					}
 
 					$propertyFetch = $methodCall->var;
-					if (!$propertyFetch->var instanceof Variable || $propertyFetch->var->name !== 'this') {
-						continue;
-					}
+     if (!$propertyFetch->var instanceof Variable) {
+         continue;
+     }
+
+     if ($propertyFetch->var->name !== 'this') {
+         continue;
+     }
 
 					if (!$propertyFetch->name instanceof Node\Identifier) {
 						continue;
@@ -401,7 +413,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 					$propertyName = '$this->' . $propertyFetch->name->toString();
 
 					// Extract parameter name
-					if (count($methodCall->getArgs()) === 0) {
+					if ($methodCall->getArgs() === []) {
 						continue;
 					}
 
@@ -439,8 +451,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 	{
 		$locations = [];
 
-		foreach ($class->getMethods() as $method) {
-			foreach ($method->getStmts() ?? [] as $stmt) {
+		foreach ($class->getMethods() as $classMethod) {
+			foreach ($classMethod->getStmts() ?? [] as $stmt) {
 				if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof MethodCall) {
 					$methodCall = $stmt->expr;
 
@@ -459,9 +471,13 @@ class ValidatePdoParameterBindingsRule implements Rule
 					}
 
 					$propertyFetch = $methodCall->var;
-					if (!$propertyFetch->var instanceof Variable || $propertyFetch->var->name !== 'this') {
-						continue;
-					}
+     if (!$propertyFetch->var instanceof Variable) {
+         continue;
+     }
+
+     if ($propertyFetch->var->name !== 'this') {
+         continue;
+     }
 
 					if (!$propertyFetch->name instanceof Node\Identifier) {
 						continue;
@@ -471,7 +487,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 					// Extract parameters if execute() is called with an array
 					$params = null;
-					if (count($methodCall->getArgs()) > 0) {
+					if ($methodCall->getArgs() !== []) {
 						$firstArg = $methodCall->getArgs()[0]->value;
 						if ($firstArg instanceof Node\Expr\Array_) {
 							$params = [];
@@ -480,6 +496,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 								if (!$item instanceof Node\Expr\ArrayItem) {
 									continue;
 								}
+
 								if ($item->key instanceof String_) {
 									// Strip leading ':' to normalize parameter names
 									$params[] = ltrim($item->key->value, ':');
@@ -513,7 +530,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 		$placeholders = [];
 
 		// Match :placeholder_name pattern
-		$matchCount = preg_match_all('/:([a-zA-Z_][a-zA-Z0-9_]*)/', $sql, $matches);
+		$matchCount = preg_match_all('/:([a-zA-Z_]\w*)/', $sql, $matches);
 		if ($matchCount !== false && $matchCount > 0) {
 			$placeholders = array_unique($matches[1]);
 		}
@@ -527,14 +544,14 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array<array{var: string, sql: string, line: int, placeholders: array<string>}>
 	 */
-	private function extractLocalVariablePreparations(ClassMethod $method): array
+	private function extractLocalVariablePreparations(ClassMethod $classMethod): array
 	{
 		$preparations = [];
 
 		// First, extract SQL variables in this method
-		$sqlVariables = $this->extractSqlVariablesFromMethod($method);
+		$sqlVariables = $this->extractSqlVariablesFromMethod($classMethod);
 
-		foreach ($method->getStmts() ?? [] as $stmt) {
+		foreach ($classMethod->getStmts() ?? [] as $stmt) {
 			if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof Assign) {
 				$assign = $stmt->expr;
 
@@ -558,11 +575,15 @@ class ValidatePdoParameterBindingsRule implements Rule
 				}
 
 				$methodCall = $assign->expr;
-				if (!$methodCall->name instanceof Node\Identifier || $methodCall->name->toString() !== 'prepare') {
-					continue;
-				}
+    if (!$methodCall->name instanceof Node\Identifier) {
+        continue;
+    }
 
-				if (count($methodCall->getArgs()) === 0) {
+    if ($methodCall->name->toString() !== 'prepare') {
+        continue;
+    }
+
+				if ($methodCall->getArgs() === []) {
 					continue;
 				}
 
@@ -620,18 +641,21 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array<array{line: int, params: array<string>|null}>
 	 */
-	private function extractLocalVariableExecuteCalls(ClassMethod $method, string $varName): array
+	private function extractLocalVariableExecuteCalls(ClassMethod $classMethod, string $varName): array
 	{
 		$executeCalls = [];
 
-		foreach ($method->getStmts() ?? [] as $stmt) {
+		foreach ($classMethod->getStmts() ?? [] as $stmt) {
 			if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof MethodCall) {
 				$methodCall = $stmt->expr;
+    // Check if it's execute()
+    if (!$methodCall->name instanceof Node\Identifier) {
+        continue;
+    }
 
-				// Check if it's execute()
-				if (!$methodCall->name instanceof Node\Identifier || $methodCall->name->toString() !== 'execute') {
-					continue;
-				}
+    if ($methodCall->name->toString() !== 'execute') {
+        continue;
+    }
 
 				// Check if called on our variable
 				if (!$methodCall->var instanceof Variable) {
@@ -648,7 +672,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 				// Extract parameters if provided as array
 				$params = null;
-				if (count($methodCall->getArgs()) > 0) {
+				if ($methodCall->getArgs() !== []) {
 					$firstArg = $methodCall->getArgs()[0]->value;
 					if ($firstArg instanceof Node\Expr\Array_) {
 						$params = [];
@@ -657,6 +681,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 							if (!$item instanceof Node\Expr\ArrayItem) {
 								continue;
 							}
+
 							if ($item->key instanceof String_) {
 								// Strip leading ':' to normalize parameter names
 								$params[] = ltrim($item->key->value, ':');
@@ -680,11 +705,11 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array<string>
 	 */
-	private function extractLocalVariableBindings(ClassMethod $method, string $varName): array
+	private function extractLocalVariableBindings(ClassMethod $classMethod, string $varName): array
 	{
 		$bindings = [];
 
-		foreach ($method->getStmts() ?? [] as $stmt) {
+		foreach ($classMethod->getStmts() ?? [] as $stmt) {
 			if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof MethodCall) {
 				$methodCall = $stmt->expr;
 
@@ -712,7 +737,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 				}
 
 				// Extract parameter name
-				if (count($methodCall->getArgs()) === 0) {
+				if ($methodCall->getArgs() === []) {
 					continue;
 				}
 
@@ -735,10 +760,10 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array<string, string> Variable name => SQL string
 	 */
-	private function extractSqlVariablesFromMethod(ClassMethod $method): array
+	private function extractSqlVariablesFromMethod(ClassMethod $classMethod): array
 	{
 		$sqlVariables = [];
-		$stmts = $method->getStmts();
+		$stmts = $classMethod->getStmts();
 
 		// Early bailout if method is empty
 		if ($stmts === null || count($stmts) === 0) {
@@ -783,8 +808,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 		$sqlKeywords = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'REPLACE'];
 		$upperStr = strtoupper(trim($str));
 
-		foreach ($sqlKeywords as $keyword) {
-			$keywordPos = strpos($upperStr, $keyword);
+		foreach ($sqlKeywords as $sqlKeyword) {
+			$keywordPos = strpos($upperStr, $sqlKeyword);
 			if ($keywordPos !== false && $keywordPos === 0) {
 				return true;
 			}
@@ -800,11 +825,11 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array<string>
 	 */
-	private function extractPlaceholdersFromEncapsedString(Encapsed $node): array
+	private function extractPlaceholdersFromEncapsedString(Encapsed $encapsed): array
 	{
 		$placeholders = [];
 
-		foreach ($node->parts as $part) {
+		foreach ($encapsed->parts as $part) {
 			// Only process literal string parts
 			if ($part instanceof EncapsedStringPart) {
 				$literalPart = $part->value;

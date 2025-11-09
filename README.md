@@ -368,6 +368,21 @@ To run tests once without watching:
 ./vendor/bin/phpunit
 ```
 
+4. Analyze source code with PHPStan:
+```bash
+composer analyze
+```
+
+This analyzes only the `./src` directory (excludes playground and test fixtures) at maximum level.
+
+5. Refactor code with Rector:
+```bash
+composer refactor:dry  # Preview changes without applying
+composer refactor      # Apply refactoring changes
+```
+
+Rector is configured to modernize code to PHP 8.1+ standards with code quality improvements.
+
 ## License
 
 MIT

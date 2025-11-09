@@ -1,5 +1,8 @@
 services:
     -
+        class: Pierresh\PhpStanPdoMysql\SqlLinter\SqlFtwAdapter
+        autowired: true
+    -
         class: Pierresh\PhpStanPdoMysql\Rules\ValidatePdoSqlSyntaxRule
         tags:
             - phpstan.rules.rule

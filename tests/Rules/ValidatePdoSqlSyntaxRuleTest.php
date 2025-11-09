@@ -5,6 +5,7 @@ namespace Pierresh\PhpStanPdoMysql\Tests\Rules;
 use PHPStan\Rules\Rule;
 use PHPStan\Testing\RuleTestCase;
 use Pierresh\PhpStanPdoMysql\Rules\ValidatePdoSqlSyntaxRule;
+use Pierresh\PhpStanPdoMysql\SqlLinter\SqlFtwAdapter;
 
 /**
  * @extends RuleTestCase<ValidatePdoSqlSyntaxRule>
@@ -13,7 +14,7 @@ class ValidatePdoSqlSyntaxRuleTest extends RuleTestCase
 {
     protected function getRule(): Rule
     {
-        return new ValidatePdoSqlSyntaxRule();
+        return new ValidatePdoSqlSyntaxRule(new SqlFtwAdapter());
     }
 
     public function testRule(): void

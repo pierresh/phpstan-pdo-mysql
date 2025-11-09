@@ -30,13 +30,13 @@ class SqlFtwAdapter implements SqlLinterInterface
 		try {
 			// Parse the SQL query using SQLFTW
 			$platform = Platform::get(Platform::MYSQL, '8.0');
-			$config = new ParserConfig($platform);
+			$parserConfig = new ParserConfig($platform);
 			$session = new Session($platform);
-			$parser = new SqlFtwParser($config, $session);
+			$parser = new SqlFtwParser($parserConfig, $session);
 
 			// Temporarily replace PDO-style placeholders (:param) with valid literals
 			// to avoid syntax errors from the parser
-			$sanitizedSql = preg_replace('/:([a-zA-Z_][a-zA-Z0-9_]*)/', "'__PLACEHOLDER__'", $sqlQuery);
+			$sanitizedSql = preg_replace('/:([a-zA-Z_]\w*)/', "'__PLACEHOLDER__'", $sqlQuery);
 
 			$commands = $parser->parse($sanitizedSql ?? $sqlQuery);
 
@@ -47,16 +47,16 @@ class SqlFtwAdapter implements SqlLinterInterface
 					$errorMessage = $exception->getMessage();
 
 					// Clean up the error message - remove the SQL context for brevity
-					if (strpos($errorMessage, ' at position ') !== false) {
-						$errorMessage = preg_replace('/ at position \d+ in:.*$/s', '.', $errorMessage);
+					if (str_contains($errorMessage, ' at position ')) {
+						$errorMessage = preg_replace('/ at position \d+ in:.*$/s', '.', $errorMessage) ?? $errorMessage;
 					}
 
 					$errors[] = $errorMessage;
 				}
 			}
-		} catch (\Exception $e) {
+		} catch (\Exception $exception) {
 			// If parsing completely fails, report the error
-			$errors[] = $e->getMessage();
+			$errors[] = $exception->getMessage();
 		}
 
 		return $errors;
