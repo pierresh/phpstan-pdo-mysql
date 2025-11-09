@@ -131,4 +131,69 @@ class SelectColumnErrors
         /** @var object{id: int, name: string, email: string} */
         $user = $stmt->fetch();
     }
+
+    public function fetchAllWrongType(): void
+    {
+        // fetchAll() returns array of objects, not a single object
+        // This should ERROR: PHPDoc should be array<object{...}> not object{...}
+        $stmt = $this->db->prepare("SELECT id, name FROM users");
+        $stmt->execute();
+
+        /** @var object{id: int, name: string} */
+        $users = $stmt->fetchAll();
+    }
+
+    public function fetchAllCorrectType(): void
+    {
+        // fetchAll() with correct array type - should NOT error
+        $stmt = $this->db->prepare("SELECT id, name FROM users");
+        $stmt->execute();
+
+        /** @var array<object{id: int, name: string}> */
+        $users = $stmt->fetchAll();
+    }
+
+    public function fetchWrongType(): void
+    {
+        // fetch() returns a single object, not an array
+        // This should ERROR: PHPDoc should be object{...} not array<object{...}>
+        $stmt = $this->db->prepare("SELECT id, name FROM users");
+        $stmt->execute();
+
+        /** @var array<object{id: int, name: string}> */
+        $user = $stmt->fetch();
+    }
+
+    public function fetchAllWrongTypeWithSuffixSyntax(): void
+    {
+        // fetchAll() returns array of objects, not a single object
+        // Using [] suffix syntax instead of array<>
+        // This should ERROR: PHPDoc should be object{...}[] not object{...}
+        $stmt = $this->db->prepare("SELECT id, name FROM users");
+        $stmt->execute();
+
+        /** @var object{id: int, name: string} */
+        $users = $stmt->fetchAll();
+    }
+
+    public function fetchAllCorrectTypeWithSuffixSyntax(): void
+    {
+        // fetchAll() with correct array type using [] suffix - should NOT error
+        $stmt = $this->db->prepare("SELECT id, name FROM users");
+        $stmt->execute();
+
+        /** @var object{id: int, name: string}[] */
+        $users = $stmt->fetchAll();
+    }
+
+    public function fetchWrongTypeWithSuffixSyntax(): void
+    {
+        // fetch() returns a single object, not an array
+        // This should ERROR: PHPDoc should be object{...} not object{...}[]
+        $stmt = $this->db->prepare("SELECT id, name FROM users");
+        $stmt->execute();
+
+        /** @var object{id: int, name: string}[] */
+        $user = $stmt->fetch();
+    }
 }

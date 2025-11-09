@@ -119,7 +119,10 @@ $stmt->execute(['name' => 'John']); // Wrong parameter
 
 ### 3. SELECT Column Validation
 
-Validates that SELECT columns match the PHPDoc type annotation:
+Validates that SELECT columns match the PHPDoc type annotation.
+
+> [!NOTE]
+> This rule supports `fetch()`, `fetchObject()`, and `fetchAll()` methods, assuming the fetch mode is `PDO::FETCH_OBJ` (returning objects). Other fetch modes like `PDO::FETCH_ASSOC` (arrays) or `PDO::FETCH_CLASS` are not currently validated.
 
 ```php
 // ❌ Column typo: "nam" instead of "name"
@@ -146,7 +149,7 @@ $user = $stmt->fetch();
 > Error: SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line X)
 
 ```php
-// ✅ Valid columns (extra columns in SELECT are allowed)
+// ✅ Valid columns
 $stmt = $db->prepare("SELECT id, name, email FROM users WHERE id = :id");
 $stmt->execute(['id' => 1]);
 
@@ -187,6 +190,59 @@ class UserRepository
     }
 }
 ```
+
+#### Fetch Method Type Validation
+
+The extension also validates that your PHPDoc type structure matches the fetch method being used:
+
+```php
+// ❌ fetchAll() returns an array of objects, not a single object
+$stmt = $db->prepare("SELECT id, name FROM users");
+$stmt->execute();
+
+/** @var object{id: int, name: string} */
+$users = $stmt->fetchAll(); // Wrong: should be array type
+```
+
+> [!CAUTION]
+> Error: Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line X)
+
+```php
+// ❌ fetch() returns a single object, not an array
+$stmt = $db->prepare("SELECT id, name FROM users WHERE id = :id");
+$stmt->execute(['id' => 1]);
+
+/** @var array<object{id: int, name: string}> */
+$user = $stmt->fetch(); // Wrong: should be single object type
+```
+
+> [!CAUTION]
+> Error: Type mismatch: fetch() returns object{...} but PHPDoc specifies array<object{...}> (line X)
+
+```php
+// ✅ Correct: fetchAll() with array type (generic syntax)
+$stmt = $db->prepare("SELECT id, name FROM users");
+$stmt->execute();
+
+/** @var array<object{id: int, name: string}> */
+$users = $stmt->fetchAll();
+
+// ✅ Correct: fetchAll() with array type (suffix syntax)
+/** @var object{id: int, name: string}[] */
+$users = $stmt->fetchAll();
+
+// ✅ Correct: fetch() with single object type
+$stmt = $db->prepare("SELECT id, name FROM users WHERE id = :id");
+$stmt->execute(['id' => 1]);
+
+/** @var object{id: int, name: string} */
+$user = $stmt->fetch();
+```
+
+> [!NOTE]
+> Both PHPStan array syntaxes are supported:
+> - Generic syntax: `array<object{...}>`
+> - Suffix syntax: `object{...}[]`
 
 ## Requirements
 

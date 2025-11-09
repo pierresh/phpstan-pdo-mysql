@@ -43,6 +43,22 @@ class ValidateSelectColumnsMatchPhpDocRuleTest extends RuleTestCase
                 'SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line 86)',
                 94,
             ],
+            [
+                'Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line 139)',
+                142,
+            ],
+            [
+                'Type mismatch: fetch() returns object{...} but PHPDoc specifies array<object{...}> (line 160)',
+                163,
+            ],
+            [
+                'Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line 172)',
+                175,
+            ],
+            [
+                'Type mismatch: fetch() returns object{...} but PHPDoc specifies array<object{...}> (line 193)',
+                196,
+            ],
         ]);
     }
 

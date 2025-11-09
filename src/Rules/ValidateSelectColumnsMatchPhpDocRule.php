@@ -72,6 +72,22 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				$key = $varInfo['var_line'] . ':' . $varInfo['sql_line'] . ':' . json_encode($varInfo['object_shape']);
 				if (!isset($seen[$key])) {
 					$seen[$key] = true;
+
+					// First, validate that the fetch method matches the PHPDoc type structure
+					if (isset($varInfo['fetch_method'])) {
+						$fetchMethodError = $this->validateFetchMethodMatchesPhpDocType(
+							$varInfo['fetch_method'],
+							$varInfo['is_array_type'] ?? false,
+							$varInfo['sql_line'],
+							$varInfo['var_line']
+						);
+						if ($fetchMethodError !== null) {
+							$errors[] = $fetchMethodError;
+							continue; // Skip column validation if type structure is wrong
+						}
+					}
+
+					// Then validate columns
 					$errors = array_merge(
 						$errors,
 						$this->validateSqlAgainstPhpDoc(
@@ -86,6 +102,41 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		}
 
 		return $errors;
+	}
+
+	/**
+	 * Validate that the fetch method matches the PHPDoc type structure
+	 *
+	 * @return \PHPStan\Rules\RuleError|null
+	 */
+	private function validateFetchMethodMatchesPhpDocType(
+		string $fetchMethod,
+		bool $isArrayType,
+		int $sqlLine,
+		int $varLine
+	): ?\PHPStan\Rules\RuleError {
+		// fetchAll() should have array<object{...}> type
+		if ($fetchMethod === 'fetchAll' && !$isArrayType) {
+			return RuleErrorBuilder::message(
+				sprintf(
+					'Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line %d)',
+					$sqlLine
+				)
+			)->line($varLine)->build();
+		}
+
+		// fetch() and fetchObject() should have object{...} type (not array)
+		if (($fetchMethod === 'fetch' || $fetchMethod === 'fetchObject') && $isArrayType) {
+			return RuleErrorBuilder::message(
+				sprintf(
+					'Type mismatch: %s() returns object{...} but PHPDoc specifies array<object{...}> (line %d)',
+					$fetchMethod,
+					$sqlLine
+				)
+			)->line($varLine)->build();
+		}
+
+		return null;
 	}
 
 	/**
@@ -240,7 +291,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @param array<string, array{sql: string, line: int, var?: string}> $propertyPreparations
 	 * @param array<string, array<string, string>> $typeAliases
-	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int}>
+	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool}>
 	 */
 	private function extractVarAnnotations(ClassMethod $method, array $propertyPreparations, array $typeAliases): array
 	{
@@ -308,6 +359,8 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					'sql_line' => $matchedSql['line'],
 					'object_shape' => $varInfo['object_shape'],
 					'var_line' => $varInfo['line'],
+					'fetch_method' => $varInfo['fetch_method'] ?? null,
+					'is_array_type' => $varInfo['is_array_type'] ?? false,
 				];
 			}
 		}
@@ -318,7 +371,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Recursively collect @var object{...} annotations
 	 *
-	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null}> &$varShapes
+	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string, is_array_type?: bool}> &$varShapes
 	 * @param array<string, array<string, string>> $typeAliases
 	 */
 	private function collectVarAnnotationsRecursive(Node $node, array &$varShapes, array $typeAliases): void
@@ -333,7 +386,11 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			                   $node instanceof Node\Stmt\Return_;
 
 			if ($isStatementNode) {
-				// First try to extract inline object shape: @var object{...}
+				// Check if the @var has array syntax: array<object{...}> or object{...}[]
+				$isArrayType = (bool) preg_match('/@var\s+array<\s*object\s*\{/', $docText) ||
+				               (bool) preg_match('/@var\s+object\s*\{[^}]+\}\s*\[\]/', $docText);
+
+				// First try to extract inline object shape: @var object{...} or @var array<object{...}> or @var object{...}[]
 				$objectShape = $this->extractObjectShapeFromPhpDoc($docText, '@var');
 
 				// If not found, check if it's a type alias: @var AliasName
@@ -352,12 +409,14 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 					// Try to find which variable is being assigned in the next statement
 					// Pattern: /** @var ... */ $user = $stmt->fetch();
-					$fetchVar = $this->getFetchVariableAfterComment($node);
+					$fetchInfo = $this->getFetchInfoAfterComment($node);
 
 					$varShapes[] = [
 						'line' => $varLine,
 						'object_shape' => $objectShape,
-						'fetch_var' => $fetchVar,
+						'fetch_var' => $fetchInfo['var'] ?? null,
+						'fetch_method' => $fetchInfo['method'] ?? null,
+						'is_array_type' => $isArrayType,
 					];
 				}
 			}
@@ -400,31 +459,35 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	}
 
 	/**
-	 * Extract which variable is being fetched from in a statement with a var comment
+	 * Extract fetch information from a statement with a var comment
 	 * Pattern: comment followed by assignment like user = stmt->fetch()
-	 * We want to extract "stmt" (the variable being fetched from)
+	 * We want to extract "stmt" (the variable being fetched from) and the method name
+	 *
+	 * @return array{var?: string, method?: string}
 	 */
-	private function getFetchVariableAfterComment(Node $node): ?string
+	private function getFetchInfoAfterComment(Node $node): array
 	{
 		// The node with the @var comment could be an assignment
 		if ($node instanceof Node\Stmt\Expression && $node->expr instanceof Node\Expr\Assign) {
 			$assign = $node->expr;
-			// Check if right side is a method call (fetch/fetchObject)
+			// Check if right side is a method call (fetch/fetchObject/fetchAll)
 			if ($assign->expr instanceof MethodCall) {
 				$methodCall = $assign->expr;
-				if (
-					$methodCall->name instanceof Node\Identifier &&
-					($methodCall->name->toString() === 'fetch' || $methodCall->name->toString() === 'fetchObject')
-				) {
-					// Extract the variable being called on
-					if ($methodCall->var instanceof Variable && is_string($methodCall->var->name)) {
-						return $methodCall->var->name;
+				if ($methodCall->name instanceof Node\Identifier) {
+					$methodName = $methodCall->name->toString();
+					if (in_array($methodName, ['fetch', 'fetchObject', 'fetchAll'], true)) {
+						$result = ['method' => $methodName];
+						// Extract the variable being called on
+						if ($methodCall->var instanceof Variable && is_string($methodCall->var->name)) {
+							$result['var'] = $methodCall->var->name;
+						}
+						return $result;
 					}
 				}
 			}
 		}
 
-		return null;
+		return [];
 	}
 
 	/**
@@ -444,17 +507,17 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	}
 
 	/**
-	 * Recursively find fetchObject() calls and track properties
+	 * Recursively find fetch/fetchObject/fetchAll() calls and track properties
 	 *
 	 * @param array<string> &$properties
 	 */
 	private function findFetchCallsRecursive(Node $node, array &$properties): void
 	{
-		// Check if current node is fetchObject() call on a property
+		// Check if current node is fetch/fetchObject/fetchAll() call on a property
 		if ($node instanceof MethodCall) {
 			if (
 				$node->name instanceof Node\Identifier &&
-				($node->name->toString() === 'fetchObject' || $node->name->toString() === 'fetch')
+				in_array($node->name->toString(), ['fetch', 'fetchObject', 'fetchAll'], true)
 			) {
 				// Check if it's called on a property
 				if ($node->var instanceof PropertyFetch) {
@@ -550,16 +613,29 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 	/**
 	 * Extract object shape from @return or @var object{...} annotation
+	 * Also handles array<object{...}> and object{...}[] syntax
 	 *
 	 * @return array<string, string>|null Property name => type
 	 */
 	private function extractObjectShapeFromPhpDoc(string $docComment, string $annotation = '@return'): ?array
 	{
-		// Match @return or @var object{prop1: type1, prop2: type2}
-		$pattern = '/' . preg_quote($annotation, '/') . '\s+object\s*\{([^}]+)\}/';
-		$matchCount = preg_match($pattern, $docComment, $matches);
+		// First try to match array<object{...}> pattern
+		$arrayPattern = '/' . preg_quote($annotation, '/') . '\s+array<\s*object\s*\{([^}]+)\}\s*>/';
+		$matchCount = preg_match($arrayPattern, $docComment, $matches);
+
+		// If not found, try object{...}[] pattern (suffix syntax)
 		if ($matchCount === false || $matchCount === 0) {
-			return null;
+			$suffixPattern = '/' . preg_quote($annotation, '/') . '\s+object\s*\{([^}]+)\}\s*\[\]/';
+			$matchCount = preg_match($suffixPattern, $docComment, $matches);
+		}
+
+		// If not found, try simple object{...} pattern
+		if ($matchCount === false || $matchCount === 0) {
+			$pattern = '/' . preg_quote($annotation, '/') . '\s+object\s*\{([^}]+)\}/';
+			$matchCount = preg_match($pattern, $docComment, $matches);
+			if ($matchCount === false || $matchCount === 0) {
+				return null;
+			}
 		}
 
 		$shapeContent = $matches[1];
