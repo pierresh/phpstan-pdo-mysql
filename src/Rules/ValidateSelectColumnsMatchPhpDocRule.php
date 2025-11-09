@@ -122,7 +122,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					'Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line %d)',
 					$sqlLine
 				)
-			)->line($varLine)->build();
+			)->line($varLine)->identifier('pdoSql.fetchTypeMismatch')->build();
 		}
 
 		// fetch() and fetchObject() should have object{...} type (not array)
@@ -133,7 +133,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					$fetchMethod,
 					$sqlLine
 				)
-			)->line($varLine)->build();
+			)->line($varLine)->identifier('pdoSql.fetchTypeMismatch')->build();
 		}
 
 		return null;
@@ -596,7 +596,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						$sqlLine,
 						$typos[$prop]
 					)
-				)->line($reportLine)->build();
+				)->line($reportLine)->identifier('pdoSql.columnMismatch')->build();
 			} else {
 				$errors[] = RuleErrorBuilder::message(
 					sprintf(
@@ -604,7 +604,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						$prop,
 						$sqlLine
 					)
-				)->line($reportLine)->build();
+				)->line($reportLine)->identifier('pdoSql.columnMissing')->build();
 			}
 		}
 

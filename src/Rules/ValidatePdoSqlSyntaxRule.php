@@ -257,7 +257,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 					$methodName,
 					$errorMessage
 				)
-			)->line($line)->build();
+			)->line($line)->identifier('pdoSql.sqlSyntax')->build();
 		}
 
 		return $errors;

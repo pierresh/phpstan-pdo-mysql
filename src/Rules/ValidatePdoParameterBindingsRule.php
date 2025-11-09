@@ -108,7 +108,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 								$param,
 								$prepareLine
 							)
-						)->line($executeLine)->build();
+						)->line($executeLine)->identifier('pdoSql.missingParameter')->build();
 					}
 
 					foreach ($extra as $param) {
@@ -118,7 +118,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 								$param,
 								$prepareLine
 							)
-						)->line($executeLine)->build();
+						)->line($executeLine)->identifier('pdoSql.extraParameter')->build();
 					}
 				} else {
 					// execute() called without parameters, validate using bindValue/bindParam
@@ -136,7 +136,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 								$param,
 								$prepareLine
 							)
-						)->line($executeLine)->build();
+						)->line($executeLine)->identifier('pdoSql.missingBinding')->build();
 					}
 
 					// For extra bindings, report at the binding location
@@ -149,7 +149,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 									$param,
 									$prepareLine
 								)
-							)->line($bindingLine)->build();
+							)->line($bindingLine)->identifier('pdoSql.extraBinding')->build();
 						}
 					}
 				}
@@ -220,7 +220,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 								$param,
 								$prepareLine
 							)
-						)->line($executeLine)->build();
+						)->line($executeLine)->identifier('pdoSql.missingParameter')->build();
 					}
 
 					foreach ($extra as $param) {
@@ -230,7 +230,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 								$param,
 								$prepareLine
 							)
-						)->line($executeLine)->build();
+						)->line($executeLine)->identifier('pdoSql.extraParameter')->build();
 					}
 				} else {
 					// execute() called without array, validate using bindValue/bindParam
@@ -244,7 +244,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 								$param,
 								$prepareLine
 							)
-						)->line($executeLine)->build();
+						)->line($executeLine)->identifier('pdoSql.missingBinding')->build();
 					}
 
 					foreach ($extra as $param) {
@@ -254,7 +254,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 								$param,
 								$prepareLine
 							)
-						)->line($executeLine)->build();
+						)->line($executeLine)->identifier('pdoSql.extraBinding')->build();
 					}
 				}
 			}

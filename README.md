@@ -279,6 +279,57 @@ These rules are designed to be fast:
 - Skips very long queries (>10,000 characters)
 - Gracefully handles missing dependencies
 
+## Ignoring Specific Errors
+
+All errors from this extension have custom identifiers that allow you to selectively ignore them in your `phpstan.neon`:
+
+```neon
+parameters:
+    ignoreErrors:
+        # Ignore all SQL syntax errors
+        - identifier: pdoSql.sqlSyntax
+
+        # Ignore all parameter binding errors
+        - identifier: pdoSql.missingParameter
+        - identifier: pdoSql.extraParameter
+        - identifier: pdoSql.missingBinding
+        - identifier: pdoSql.extraBinding
+
+        # Ignore all SELECT column validation errors
+        - identifier: pdoSql.columnMismatch
+        - identifier: pdoSql.columnMissing
+        - identifier: pdoSql.fetchTypeMismatch
+```
+
+You can also ignore errors by path or message pattern:
+
+```neon
+parameters:
+    ignoreErrors:
+        # Ignore SQL syntax errors in migration files
+        -
+            identifier: pdoSql.sqlSyntax
+            path: */migrations/*
+
+        # Ignore missing parameter errors for a specific parameter
+        -
+            message: '#Missing parameter :legacy_id#'
+            identifier: pdoSql.missingParameter
+```
+
+### Available Error Identifiers
+
+| Identifier | Rule | Description |
+|------------|------|-------------|
+| `pdoSql.sqlSyntax` | SQL Syntax Validation | SQL syntax error detected |
+| `pdoSql.missingParameter` | Parameter Bindings | Parameter expected in SQL but missing from `execute()` array |
+| `pdoSql.extraParameter` | Parameter Bindings | Parameter in `execute()` array but not used in SQL |
+| `pdoSql.missingBinding` | Parameter Bindings | Parameter expected but no `bindValue()`/`bindParam()` found |
+| `pdoSql.extraBinding` | Parameter Bindings | Parameter bound but not used in SQL |
+| `pdoSql.columnMismatch` | SELECT Column Validation | Column name typo detected (case-sensitive) |
+| `pdoSql.columnMissing` | SELECT Column Validation | PHPDoc property missing from SELECT  |
+| `pdoSql.fetchTypeMismatch` | SELECT Column Validation | Fetch method doesn't match PHPDoc type structure |
+
 ## Playground
 
 Want to try the extension quickly? Open `playground/example.php` in your IDE with a PHPStan plugin installed. You'll see errors highlighted in real-time as you edit the code.
