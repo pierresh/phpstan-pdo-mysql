@@ -383,6 +383,26 @@ composer refactor      # Apply refactoring changes
 
 Rector is configured to modernize code to PHP 8.1+ standards with code quality improvements.
 
+6. Format code with Mago:
+```bash
+composer format:check  # Check formatting without making changes
+composer format        # Apply code formatting
+```
+
+Mago provides consistent, opinionated code formatting for PHP 8.1+.
+
+7. Lint code with Mago:
+```bash
+composer lint          # Run Mago linter
+```
+
+8. Analyze code with Mago:
+```bash
+composer mago:analyze  # Run Mago static analyzer
+```
+
+Mago's analyzer provides fast, type-level analysis to find logical errors and type mismatches.
+
 ## License
 
 MIT

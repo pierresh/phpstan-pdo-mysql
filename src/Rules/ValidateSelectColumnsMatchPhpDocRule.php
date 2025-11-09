@@ -3,12 +3,12 @@
 namespace Pierresh\PhpStanPdoMysql\Rules;
 
 use PhpParser\Node;
-use PhpParser\Node\Stmt\Class_;
-use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\Class_;
+use PhpParser\Node\Stmt\ClassMethod;
 use PHPStan\Analyser\Scope;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
@@ -66,10 +66,19 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		$seen = [];
 		foreach ($node->getMethods() as $classMethod) {
 			// Validate @var annotations within method body
-			$varAnnotations = $this->extractVarAnnotations($classMethod, $propertyPreparations, $typeAliases);
+			$varAnnotations = $this->extractVarAnnotations(
+				$classMethod,
+				$propertyPreparations,
+				$typeAliases,
+			);
 			foreach ($varAnnotations as $varAnnotation) {
 				// Create a unique key to avoid duplicate validations
-				$key = $varAnnotation['var_line'] . ':' . $varAnnotation['sql_line'] . ':' . json_encode($varAnnotation['object_shape']);
+				$key =
+					$varAnnotation['var_line']
+					. ':'
+					. $varAnnotation['sql_line']
+					. ':'
+					. json_encode($varAnnotation['object_shape']);
 				if (!isset($seen[$key])) {
 					$seen[$key] = true;
 
@@ -79,7 +88,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 							$varAnnotation['fetch_method'],
 							$varAnnotation['is_array_type'] ?? false,
 							$varAnnotation['sql_line'],
-							$varAnnotation['var_line']
+							$varAnnotation['var_line'],
 						);
 						if ($fetchMethodError instanceof \PHPStan\Rules\RuleError) {
 							$errors[] = $fetchMethodError;
@@ -88,15 +97,12 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					}
 
 					// Then validate columns
-					$errors = array_merge(
-						$errors,
-						$this->validateSqlAgainstPhpDoc(
-							$varAnnotation['sql'],
-							$varAnnotation['sql_line'],
-							$varAnnotation['object_shape'],
-							$varAnnotation['var_line']
-						)
-					);
+					$errors = array_merge($errors, $this->validateSqlAgainstPhpDoc(
+						$varAnnotation['sql'],
+						$varAnnotation['sql_line'],
+						$varAnnotation['object_shape'],
+						$varAnnotation['var_line'],
+					));
 				}
 			}
 		}
@@ -105,33 +111,38 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	}
 
 	/**
-  * Validate that the fetch method matches the PHPDoc type structure
-  */
- private function validateFetchMethodMatchesPhpDocType(
+	 * Validate that the fetch method matches the PHPDoc type structure
+	 */
+	private function validateFetchMethodMatchesPhpDocType(
 		string $fetchMethod,
 		bool $isArrayType,
 		int $sqlLine,
-		int $varLine
-	): ?\PHPStan\Rules\RuleError {
+		int $varLine,
+	): null|\PHPStan\Rules\RuleError {
 		// fetchAll() should have array<object{...}> type
 		if ($fetchMethod === 'fetchAll' && !$isArrayType) {
-			return RuleErrorBuilder::message(
-				sprintf(
-					'Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line %d)',
-					$sqlLine
-				)
-			)->line($varLine)->identifier('pdoSql.fetchTypeMismatch')->build();
+			return RuleErrorBuilder::message(sprintf(
+				'Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line %d)',
+				$sqlLine,
+			))
+				->line($varLine)
+				->identifier('pdoSql.fetchTypeMismatch')
+				->build();
 		}
 
 		// fetch() and fetchObject() should have object{...} type (not array)
-		if (($fetchMethod === 'fetch' || $fetchMethod === 'fetchObject') && $isArrayType) {
-			return RuleErrorBuilder::message(
-				sprintf(
-					'Type mismatch: %s() returns object{...} but PHPDoc specifies array<object{...}> (line %d)',
-					$fetchMethod,
-					$sqlLine
-				)
-			)->line($varLine)->identifier('pdoSql.fetchTypeMismatch')->build();
+		if (
+			($fetchMethod === 'fetch' || $fetchMethod === 'fetchObject')
+			&& $isArrayType
+		) {
+			return RuleErrorBuilder::message(sprintf(
+				'Type mismatch: %s() returns object{...} but PHPDoc specifies array<object{...}> (line %d)',
+				$fetchMethod,
+				$sqlLine,
+			))
+				->line($varLine)
+				->identifier('pdoSql.fetchTypeMismatch')
+				->build();
 		}
 
 		return null;
@@ -156,7 +167,11 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		foreach ($lines as $line) {
 			// Match @phpstan-type AliasName object{prop1: type1, prop2: type2}
-			$matchCount = preg_match('/@phpstan-type\s+(\w+)\s+object\s*\{([^}]+)\}/s', $line, $matches);
+			$matchCount = preg_match(
+				'/@phpstan-type\s+(\w+)\s+object\s*\{([^}]+)\}/s',
+				$line,
+				$matches,
+			);
 			if ($matchCount !== false && $matchCount > 0) {
 				$aliasName = $matches[1];
 				$shapeContent = $matches[2];
@@ -184,7 +199,12 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			return $aliases;
 		}
 
-		$multilineMatchCount = preg_match_all('/@phpstan-type\s+(\w+)\s+object\s*\{([^}]+)\}/s', $cleanedDocText, $matches, PREG_SET_ORDER);
+		$multilineMatchCount = preg_match_all(
+			'/@phpstan-type\s+(\w+)\s+object\s*\{([^}]+)\}/s',
+			$cleanedDocText,
+			$matches,
+			PREG_SET_ORDER,
+		);
 		if ($multilineMatchCount !== false && $multilineMatchCount > 0) {
 			foreach ($matches as $match) {
 				$aliasName = $match[1];
@@ -225,7 +245,10 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			$sqlVariables = $this->extractSqlVariablesFromMethod($classMethod);
 
 			foreach ($classMethod->getStmts() ?? [] as $stmt) {
-				if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof Node\Expr\Assign) {
+				if (
+					$stmt instanceof Node\Stmt\Expression
+					&& $stmt->expr instanceof Node\Expr\Assign
+				) {
 					$assign = $stmt->expr;
 
 					// Check if left side is $this->property
@@ -234,13 +257,13 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					}
 
 					$propertyFetch = $assign->var;
-     if (!$propertyFetch->var instanceof Variable) {
-         continue;
-     }
+					if (!$propertyFetch->var instanceof Variable) {
+						continue;
+					}
 
-     if ($propertyFetch->var->name !== 'this') {
-         continue;
-     }
+					if ($propertyFetch->var->name !== 'this') {
+						continue;
+					}
 
 					if (!$propertyFetch->name instanceof Node\Identifier) {
 						continue;
@@ -255,9 +278,9 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 					$methodCall = $assign->expr;
 					if (
-						$methodCall->name instanceof Node\Identifier &&
-						$methodCall->name->toString() === 'prepare' &&
-						$methodCall->getArgs() !== []
+						$methodCall->name instanceof Node\Identifier
+						&& $methodCall->name->toString() === 'prepare'
+						&& $methodCall->getArgs() !== []
 					) {
 						$firstArg = $methodCall->getArgs()[0]->value;
 						$sql = null;
@@ -265,9 +288,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						// Case 1: Direct string literal
 						if ($firstArg instanceof String_) {
 							$sql = $firstArg->value;
-						}
-						// Case 2: Variable reference
-						elseif ($firstArg instanceof Variable && is_string($firstArg->name)) {
+						} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
 							$varName = $firstArg->name;
 							if (isset($sqlVariables[$varName])) {
 								$sql = $sqlVariables[$varName];
@@ -288,7 +309,6 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		return $preparations;
 	}
 
-
 	/**
 	 * Extract @var annotations from method body and match them with SQL queries
 	 *
@@ -296,8 +316,11 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * @param array<string, array<string, string>> $typeAliases
 	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool}>
 	 */
-	private function extractVarAnnotations(ClassMethod $classMethod, array $propertyPreparations, array $typeAliases): array
-	{
+	private function extractVarAnnotations(
+		ClassMethod $classMethod,
+		array $propertyPreparations,
+		array $typeAliases,
+	): array {
 		$annotations = [];
 
 		// First, collect all @var annotations in this method
@@ -332,7 +355,10 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			// If we know which variable is being fetched from, match by variable name
 			if ($varShape['fetch_var'] !== null) {
 				foreach ($sqlQueries as $sqlQuery) {
-					if (isset($sqlQuery['var']) && $sqlQuery['var'] === $varShape['fetch_var']) {
+					if (
+						isset($sqlQuery['var'])
+						&& $sqlQuery['var'] === $varShape['fetch_var']
+					) {
 						$matchedSql = $sqlQuery;
 						break;
 					}
@@ -375,21 +401,25 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string, is_array_type?: bool}> &$varShapes
 	 * @param array<string, array<string, string>> $typeAliases
 	 */
-	private function collectVarAnnotationsRecursive(Node $node, array &$varShapes, array $typeAliases): void
-	{
+	private function collectVarAnnotationsRecursive(
+		Node $node,
+		array &$varShapes,
+		array $typeAliases,
+	): void {
 		$docComment = $node->getDocComment();
 		if ($docComment !== null) {
 			$docText = $docComment->getText();
 
 			// Only process @var comments on statement nodes (not expression nodes)
 			// to avoid processing the same comment multiple times as it bubbles down the AST
-			$isStatementNode = $node instanceof Node\Stmt\Expression ||
-			                   $node instanceof Node\Stmt\Return_;
+			$isStatementNode =
+				$node instanceof Node\Stmt\Expression || $node instanceof Node\Stmt\Return_;
 
 			if ($isStatementNode) {
 				// Check if the @var has array syntax: array<object{...}> or object{...}[]
-				$isArrayType = (bool) preg_match('/@var\s+array<\s*object\s*\{/', $docText) ||
-				               (bool) preg_match('/@var\s+object\s*\{[^}]+\}\s*\[\]/', $docText);
+				$isArrayType =
+					(bool) preg_match('/@var\s+array<\s*object\s*\{/', $docText)
+					|| (bool) preg_match('/@var\s+object\s*\{[^}]+\}\s*\[\]/', $docText);
 
 				// First try to extract inline object shape: @var object{...} or @var array<object{...}> or @var object{...}[]
 				$objectShape = $this->extractObjectShapeFromPhpDoc($docText, '@var');
@@ -470,7 +500,10 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	private function getFetchInfoAfterComment(Node $node): array
 	{
 		// The node with the @var comment could be an assignment
-		if ($node instanceof Node\Stmt\Expression && $node->expr instanceof Node\Expr\Assign) {
+		if (
+			$node instanceof Node\Stmt\Expression
+			&& $node->expr instanceof Node\Expr\Assign
+		) {
 			$assign = $node->expr;
 			// Check if right side is a method call (fetch/fetchObject/fetchAll)
 			if ($assign->expr instanceof MethodCall) {
@@ -480,7 +513,10 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					if (in_array($methodName, ['fetch', 'fetchObject', 'fetchAll'], true)) {
 						$result = ['method' => $methodName];
 						// Extract the variable being called on
-						if ($methodCall->var instanceof Variable && is_string($methodCall->var->name)) {
+						if (
+							$methodCall->var instanceof Variable
+							&& is_string($methodCall->var->name)
+						) {
 							$result['var'] = $methodCall->var->name;
 						}
 
@@ -517,18 +553,26 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	private function findFetchCallsRecursive(Node $node, array &$properties): void
 	{
 		// Check if current node is fetch/fetchObject/fetchAll() call on a property
-  // Check if it's called on a property
-  if ($node instanceof MethodCall && ($node->name instanceof Node\Identifier &&
-				in_array($node->name->toString(), ['fetch', 'fetchObject', 'fetchAll'], true)) && $node->var instanceof PropertyFetch) {
-      $propertyFetch = $node->var;
-      if (
- 						$propertyFetch->var instanceof Variable &&
- 						$propertyFetch->var->name === 'this' &&
- 						$propertyFetch->name instanceof Node\Identifier
- 					) {
- 						$properties[] = '$this->' . $propertyFetch->name->toString();
- 					}
-  }
+		// Check if it's called on a property
+		if (
+			$node instanceof MethodCall
+			&& $node->name instanceof Node\Identifier
+			&& in_array(
+				$node->name->toString(),
+				['fetch', 'fetchObject', 'fetchAll'],
+				true,
+			)
+			&& $node->var instanceof PropertyFetch
+		) {
+			$propertyFetch = $node->var;
+			if (
+				$propertyFetch->var instanceof Variable
+				&& $propertyFetch->var->name === 'this'
+				&& $propertyFetch->name instanceof Node\Identifier
+			) {
+				$properties[] = '$this->' . $propertyFetch->name->toString();
+			}
+		}
 
 		// Recursively search in child nodes
 		foreach ($node->getSubNodeNames() as $subNodeName) {
@@ -556,7 +600,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		string $sql,
 		int $sqlLine,
 		array $objectShape,
-		?int $reportLine = null
+		null|int $reportLine = null,
 	): array {
 		$errors = [];
 		$reportLine ??= $sqlLine;
@@ -586,22 +630,24 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		foreach ($missingInSelect as $prop) {
 			if (isset($typos[$prop])) {
-				$errors[] = RuleErrorBuilder::message(
-					sprintf(
-						'SELECT column mismatch: PHPDoc expects property "%s" but SELECT (line %d) has "%s" - possible typo?',
-						$prop,
-						$sqlLine,
-						$typos[$prop]
-					)
-				)->line($reportLine)->identifier('pdoSql.columnMismatch')->build();
+				$errors[] = RuleErrorBuilder::message(sprintf(
+					'SELECT column mismatch: PHPDoc expects property "%s" but SELECT (line %d) has "%s" - possible typo?',
+					$prop,
+					$sqlLine,
+					$typos[$prop],
+				))
+					->line($reportLine)
+					->identifier('pdoSql.columnMismatch')
+					->build();
 			} else {
-				$errors[] = RuleErrorBuilder::message(
-					sprintf(
-						'SELECT column missing: PHPDoc expects property "%s" but it is not in the SELECT query (line %d)',
-						$prop,
-						$sqlLine
-					)
-				)->line($reportLine)->identifier('pdoSql.columnMissing')->build();
+				$errors[] = RuleErrorBuilder::message(sprintf(
+					'SELECT column missing: PHPDoc expects property "%s" but it is not in the SELECT query (line %d)',
+					$prop,
+					$sqlLine,
+				))
+					->line($reportLine)
+					->identifier('pdoSql.columnMissing')
+					->build();
 			}
 		}
 
@@ -614,8 +660,10 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @return array<string, string>|null Property name => type
 	 */
-	private function extractObjectShapeFromPhpDoc(string $docComment, string $annotation = '@return'): ?array
-	{
+	private function extractObjectShapeFromPhpDoc(
+		string $docComment,
+		string $annotation = '@return',
+	): null|array {
 		// Clean up doc comment: remove leading asterisks and normalize whitespace
 		// This handles multiline PHPDoc comments like:
 		// /**
@@ -630,12 +678,16 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		}
 
 		// First try to match array<object{...}> pattern (with s modifier for multiline)
-		$arrayPattern = '/' . preg_quote($annotation, '/') . '\s+array<\s*object\s*\{([^}]+)\}\s*>/s';
+		$arrayPattern =
+			'/'
+			. preg_quote($annotation, '/')
+			. '\s+array<\s*object\s*\{([^}]+)\}\s*>/s';
 		$matchCount = preg_match($arrayPattern, $cleanedComment, $matches);
 
 		// If not found, try object{...}[] pattern (suffix syntax)
 		if ($matchCount === false || $matchCount === 0) {
-			$suffixPattern = '/' . preg_quote($annotation, '/') . '\s+object\s*\{([^}]+)\}\s*\[\]/s';
+			$suffixPattern =
+				'/' . preg_quote($annotation, '/') . '\s+object\s*\{([^}]+)\}\s*\[\]/s';
 			$matchCount = preg_match($suffixPattern, $cleanedComment, $matches);
 		}
 
@@ -692,16 +744,22 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * @param array<array{sql: string, line: int, var: string|null}> &$statements
 	 * @param array<string, string> $sqlVariables
 	 */
-	private function findPrepareCallsRecursive(Node $node, array &$statements, array $sqlVariables): void
-	{
+	private function findPrepareCallsRecursive(
+		Node $node,
+		array &$statements,
+		array $sqlVariables,
+	): void {
 		// Check if current node is a prepare() call
-		if ($node instanceof Node\Stmt\Expression && $node->expr instanceof MethodCall) {
+		if (
+			$node instanceof Node\Stmt\Expression
+			&& $node->expr instanceof MethodCall
+		) {
 			$methodCall = $node->expr;
 
 			if (
-				$methodCall->name instanceof Node\Identifier &&
-				$methodCall->name->toString() === 'prepare' &&
-				$methodCall->getArgs() !== []
+				$methodCall->name instanceof Node\Identifier
+				&& $methodCall->name->toString() === 'prepare'
+				&& $methodCall->getArgs() !== []
 			) {
 				$firstArg = $methodCall->getArgs()[0]->value;
 				$sql = null;
@@ -709,9 +767,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				// Case 1: Direct string literal
 				if ($firstArg instanceof String_) {
 					$sql = $firstArg->value;
-				}
-				// Case 2: Variable reference
-				elseif ($firstArg instanceof Variable && is_string($firstArg->name)) {
+				} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
 					$varName = $firstArg->name;
 					if (isset($sqlVariables[$varName])) {
 						$sql = $sqlVariables[$varName];
@@ -729,15 +785,18 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		}
 
 		// Also check assignments: $var = $db->prepare(...)
-		if ($node instanceof Node\Stmt\Expression && $node->expr instanceof Node\Expr\Assign) {
+		if (
+			$node instanceof Node\Stmt\Expression
+			&& $node->expr instanceof Node\Expr\Assign
+		) {
 			$assign = $node->expr;
 			if ($assign->expr instanceof MethodCall) {
 				$methodCall = $assign->expr;
 
 				if (
-					$methodCall->name instanceof Node\Identifier &&
-					$methodCall->name->toString() === 'prepare' &&
-					$methodCall->getArgs() !== []
+					$methodCall->name instanceof Node\Identifier
+					&& $methodCall->name->toString() === 'prepare'
+					&& $methodCall->getArgs() !== []
 				) {
 					$firstArg = $methodCall->getArgs()[0]->value;
 					$sql = null;
@@ -751,9 +810,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					// Case 1: Direct string literal
 					if ($firstArg instanceof String_) {
 						$sql = $firstArg->value;
-					}
-					// Case 2: Variable reference
-					elseif ($firstArg instanceof Variable && is_string($firstArg->name)) {
+					} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
 						$varName = $firstArg->name;
 						if (isset($sqlVariables[$varName])) {
 							$sql = $sqlVariables[$varName];
@@ -792,7 +849,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @return array<string>|null Column names or null if parsing fails
 	 */
-	private function extractSelectColumns(string $sql): ?array
+	private function extractSelectColumns(string $sql): null|array
 	{
 		// Remove comments and normalize whitespace
 		$sql = (string) preg_replace('/--.*$/m', '', $sql);
@@ -800,7 +857,11 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		$sql = (string) preg_replace('/\s+/', ' ', trim($sql));
 
 		// Match SELECT ... FROM pattern
-		$selectMatchCount = preg_match('/^\s*SELECT\s+(.*?)\s+FROM\s+/i', $sql, $matches);
+		$selectMatchCount = preg_match(
+			'/^\s*SELECT\s+(.*?)\s+FROM\s+/i',
+			$sql,
+			$matches,
+		);
 		if ($selectMatchCount === false || $selectMatchCount === 0) {
 			return null;
 		}
@@ -827,7 +888,16 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				if ($spaceMatchCount !== false && $spaceMatchCount > 0) {
 					// Column with space-separated alias
 					$potentialAlias = $aliasMatch[1];
-					$keywords = ['FROM', 'WHERE', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON'];
+					$keywords = [
+						'FROM',
+						'WHERE',
+						'JOIN',
+						'LEFT',
+						'RIGHT',
+						'INNER',
+						'OUTER',
+						'ON',
+					];
 					if (!in_array(strtoupper($potentialAlias), $keywords, true)) {
 						$columns[] = $potentialAlias;
 					}
@@ -895,7 +965,12 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		foreach ($stmts as $stmt) {
 			// Skip non-assignment statements
-			if (!($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof Node\Expr\Assign)) {
+			if (
+				!(
+					$stmt instanceof Node\Stmt\Expression
+					&& $stmt->expr instanceof Node\Expr\Assign
+				)
+			) {
 				continue;
 			}
 
@@ -907,7 +982,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			}
 
 			// Check if right side is a string
-			if (!($assign->expr instanceof String_)) {
+			if (!$assign->expr instanceof String_) {
 				continue;
 			}
 
@@ -928,7 +1003,16 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 */
 	private function looksLikeSQL(string $str): bool
 	{
-		$sqlKeywords = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'REPLACE'];
+		$sqlKeywords = [
+			'SELECT',
+			'INSERT',
+			'UPDATE',
+			'DELETE',
+			'CREATE',
+			'DROP',
+			'ALTER',
+			'REPLACE',
+		];
 		$upperStr = strtoupper(trim($str));
 
 		foreach ($sqlKeywords as $sqlKeyword) {

@@ -11,69 +11,66 @@ use Pierresh\PhpStanPdoMysql\Rules\ValidatePdoParameterBindingsRule;
  */
 class ValidatePdoParameterBindingsRuleTest extends RuleTestCase
 {
-    protected function getRule(): Rule
-    {
-        return new ValidatePdoParameterBindingsRule();
-    }
+	protected function getRule(): Rule
+	{
+		return new ValidatePdoParameterBindingsRule();
+	}
 
-    public function testRule(): void
-    {
-        $this->analyse([__DIR__ . '/../Fixtures/ParameterBindingErrors.php'], [
-            [
-                'Missing parameter :name in execute() array - SQL query (line 19) expects this parameter',
-                20,
-            ],
-            [
-                'Parameter :extra in execute() array is not used in SQL query (line 26)',
-                27,
-            ],
-            [
-                'Missing parameter :id in execute() array - SQL query (line 33) expects this parameter',
-                35,
-            ],
-            [
-                'Parameter :name in execute() array is not used in SQL query (line 33)',
-                35,
-            ],
-            [
-                'Missing parameter :user_id in execute() array - SQL query (line 57) expects this parameter',
-                58,
-            ],
-            [
-                'Parameter :id in execute() array is not used in SQL query (line 57)',
-                58,
-            ],
-            [
-                'Missing parameter :name in execute() array - SQL query (line 71) expects this parameter',
-                72,
-            ],
-            [
-                'Parameter :extra in execute() array is not used in SQL query (line 78)',
-                79,
-            ],
-            [
-                'Missing parameter :user_id in execute() array - SQL query (line 93) expects this parameter',
-                94,
-            ],
-            [
-                'Parameter :id in execute() array is not used in SQL query (line 93)',
-                94,
-            ],
-            [
-                'Parameter :id in execute() array is not used in SQL query (line 100)',
-                101,
-            ],
-            [
-                'Parameter :name in execute() array is not used in SQL query (line 100)',
-                101,
-            ],
-        ]);
-    }
+	public function testRule(): void
+	{
+		$this->analyse([__DIR__ . '/../Fixtures/ParameterBindingErrors.php'], [
+			[
+				'Missing parameter :name in execute() array - SQL query (line 19) expects this parameter',
+				22,
+			],
+			[
+				'Parameter :extra in execute() array is not used in SQL query (line 28)',
+				29,
+			],
+			[
+				'Missing parameter :id in execute() array - SQL query (line 35) expects this parameter',
+				37,
+			],
+			[
+				'Parameter :name in execute() array is not used in SQL query (line 35)',
+				37,
+			],
+			[
+				'Missing parameter :user_id in execute() array - SQL query (line 61) expects this parameter',
+				62,
+			],
+			['Parameter :id in execute() array is not used in SQL query (line 61)', 62],
+			[
+				'Missing parameter :name in execute() array - SQL query (line 77) expects this parameter',
+				80,
+			],
+			[
+				'Parameter :extra in execute() array is not used in SQL query (line 86)',
+				87,
+			],
+			[
+				'Missing parameter :user_id in execute() array - SQL query (line 103) expects this parameter',
+				104,
+			],
+			[
+				'Parameter :id in execute() array is not used in SQL query (line 103)',
+				104,
+			],
+			[
+				'Parameter :id in execute() array is not used in SQL query (line 110)',
+				111,
+			],
+			[
+				'Parameter :name in execute() array is not used in SQL query (line 110)',
+				111,
+			],
+		]);
+	}
 
-    public static function getAdditionalConfigFiles(): array
-    {
-        return [
-            __DIR__ . '/../../extension.neon',
-        ];
-    }
+	public static function getAdditionalConfigFiles(): array
+	{
+		return [
+			__DIR__ . '/../../extension.neon',
+		];
+	}
 }

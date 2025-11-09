@@ -1,0 +1,20 @@
+# Mago configuration file
+# https://github.com/carthage-software/mago
+
+php-version = "8.1"
+
+[source]
+# Source directories to include
+includes = ["src", "tests"]
+# Exclude test fixtures with intentional errors
+excludes = ["tests/Fixtures"]
+
+[formatter]
+# Use tabs instead of spaces for indentation
+use-tabs = true
+# Set maximum line width to 80 characters
+print-width = 80
+
+[linter.rules]
+# Disable the literal-named-argument rule completely
+literal-named-argument = { enabled = false }

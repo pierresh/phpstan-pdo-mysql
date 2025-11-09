@@ -2,9 +2,9 @@
 
 namespace Pierresh\PhpStanPdoMysql\SqlLinter;
 
+use SqlFtw\Parser\InvalidCommand;
 use SqlFtw\Parser\Parser as SqlFtwParser;
 use SqlFtw\Parser\ParserConfig;
-use SqlFtw\Parser\InvalidCommand;
 use SqlFtw\Platform\Platform;
 use SqlFtw\Session\Session;
 
@@ -36,7 +36,11 @@ class SqlFtwAdapter implements SqlLinterInterface
 
 			// Temporarily replace PDO-style placeholders (:param) with valid literals
 			// to avoid syntax errors from the parser
-			$sanitizedSql = preg_replace('/:([a-zA-Z_]\w*)/', "'__PLACEHOLDER__'", $sqlQuery);
+			$sanitizedSql = preg_replace(
+				'/:([a-zA-Z_]\w*)/',
+				"'__PLACEHOLDER__'",
+				$sqlQuery,
+			);
 
 			$commands = $parser->parse($sanitizedSql ?? $sqlQuery);
 
@@ -48,7 +52,9 @@ class SqlFtwAdapter implements SqlLinterInterface
 
 					// Clean up the error message - remove the SQL context for brevity
 					if (str_contains($errorMessage, ' at position ')) {
-						$errorMessage = preg_replace('/ at position \d+ in:.*$/s', '.', $errorMessage) ?? $errorMessage;
+						$errorMessage =
+							preg_replace('/ at position \d+ in:.*$/s', '.', $errorMessage)
+							?? $errorMessage;
 					}
 
 					$errors[] = $errorMessage;

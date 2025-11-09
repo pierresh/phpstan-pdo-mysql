@@ -3,15 +3,15 @@
 namespace Pierresh\PhpStanPdoMysql\Rules;
 
 use PhpParser\Node;
-use PhpParser\Node\Stmt\Class_;
-use PhpParser\Node\Stmt\ClassMethod;
 use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
-use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Scalar\Encapsed;
 use PhpParser\Node\Scalar\EncapsedStringPart;
+use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\Class_;
+use PhpParser\Node\Stmt\ClassMethod;
 use PHPStan\Analyser\Scope;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
@@ -42,7 +42,6 @@ class ValidatePdoParameterBindingsRule implements Rule
 	public function processNode(Node $node, Scope $scope): array
 	{
 		$errors = [];
-
 
 		// 1. Validate class properties across methods
 		$errors = array_merge($errors, $this->validateClassProperties($node));
@@ -102,23 +101,25 @@ class ValidatePdoParameterBindingsRule implements Rule
 					$extra = array_diff($executeParams, $placeholders);
 
 					foreach ($missing as $param) {
-						$errors[] = RuleErrorBuilder::message(
-							sprintf(
-								'Missing parameter :%s in execute() array - SQL query (line %d) expects this parameter',
-								$param,
-								$prepareLine
-							)
-						)->line($executeLine)->identifier('pdoSql.missingParameter')->build();
+						$errors[] = RuleErrorBuilder::message(sprintf(
+							'Missing parameter :%s in execute() array - SQL query (line %d) expects this parameter',
+							$param,
+							$prepareLine,
+						))
+							->line($executeLine)
+							->identifier('pdoSql.missingParameter')
+							->build();
 					}
 
 					foreach ($extra as $param) {
-						$errors[] = RuleErrorBuilder::message(
-							sprintf(
-								'Parameter :%s in execute() array is not used in SQL query (line %d)',
-								$param,
-								$prepareLine
-							)
-						)->line($executeLine)->identifier('pdoSql.extraParameter')->build();
+						$errors[] = RuleErrorBuilder::message(sprintf(
+							'Parameter :%s in execute() array is not used in SQL query (line %d)',
+							$param,
+							$prepareLine,
+						))
+							->line($executeLine)
+							->identifier('pdoSql.extraParameter')
+							->build();
 					}
 				} else {
 					// execute() called without parameters, validate using bindValue/bindParam
@@ -130,26 +131,29 @@ class ValidatePdoParameterBindingsRule implements Rule
 					$extra = array_diff($boundParams, $placeholders);
 
 					foreach ($missing as $param) {
-						$errors[] = RuleErrorBuilder::message(
-							sprintf(
-								'Missing binding for :%s - SQL query (line %d) expects this parameter but no bindValue/bindParam found before execute()',
-								$param,
-								$prepareLine
-							)
-						)->line($executeLine)->identifier('pdoSql.missingBinding')->build();
+						$errors[] = RuleErrorBuilder::message(sprintf(
+							'Missing binding for :%s - SQL query (line %d) expects this parameter but no bindValue/bindParam found before execute()',
+							$param,
+							$prepareLine,
+						))
+							->line($executeLine)
+							->identifier('pdoSql.missingBinding')
+							->build();
 					}
 
 					// For extra bindings, report at the binding location
 					if (isset($propertyBindings[$propertyName]['locations'])) {
 						foreach ($extra as $param) {
-							$bindingLine = $propertyBindings[$propertyName]['locations'][$param] ?? $executeLine;
-							$errors[] = RuleErrorBuilder::message(
-								sprintf(
-									'Parameter :%s is bound but not used in SQL query (line %d)',
-									$param,
-									$prepareLine
-								)
-							)->line($bindingLine)->identifier('pdoSql.extraBinding')->build();
+							$bindingLine =
+								$propertyBindings[$propertyName]['locations'][$param] ?? $executeLine;
+							$errors[] = RuleErrorBuilder::message(sprintf(
+								'Parameter :%s is bound but not used in SQL query (line %d)',
+								$param,
+								$prepareLine,
+							))
+								->line($bindingLine)
+								->identifier('pdoSql.extraBinding')
+								->build();
 						}
 					}
 				}
@@ -169,7 +173,10 @@ class ValidatePdoParameterBindingsRule implements Rule
 		$errors = [];
 
 		foreach ($class->getMethods() as $classMethod) {
-			$errors = array_merge($errors, $this->validateMethodLocalVariables($classMethod));
+			$errors = array_merge(
+				$errors,
+				$this->validateMethodLocalVariables($classMethod),
+			);
 		}
 
 		return $errors;
@@ -193,7 +200,10 @@ class ValidatePdoParameterBindingsRule implements Rule
 			$prepareLine = $preparation['line'];
 
 			// Find execute() calls for this variable
-			$executeCalls = $this->extractLocalVariableExecuteCalls($classMethod, $varName);
+			$executeCalls = $this->extractLocalVariableExecuteCalls(
+				$classMethod,
+				$varName,
+			);
 
 			// Extract bindValue/bindParam calls
 			$boundParams = $this->extractLocalVariableBindings($classMethod, $varName);
@@ -214,23 +224,25 @@ class ValidatePdoParameterBindingsRule implements Rule
 					$extra = array_diff($executeParams, $placeholders);
 
 					foreach ($missing as $param) {
-						$errors[] = RuleErrorBuilder::message(
-							sprintf(
-								'Missing parameter :%s in execute() array - SQL query (line %d) expects this parameter',
-								$param,
-								$prepareLine
-							)
-						)->line($executeLine)->identifier('pdoSql.missingParameter')->build();
+						$errors[] = RuleErrorBuilder::message(sprintf(
+							'Missing parameter :%s in execute() array - SQL query (line %d) expects this parameter',
+							$param,
+							$prepareLine,
+						))
+							->line($executeLine)
+							->identifier('pdoSql.missingParameter')
+							->build();
 					}
 
 					foreach ($extra as $param) {
-						$errors[] = RuleErrorBuilder::message(
-							sprintf(
-								'Parameter :%s in execute() array is not used in SQL query (line %d)',
-								$param,
-								$prepareLine
-							)
-						)->line($executeLine)->identifier('pdoSql.extraParameter')->build();
+						$errors[] = RuleErrorBuilder::message(sprintf(
+							'Parameter :%s in execute() array is not used in SQL query (line %d)',
+							$param,
+							$prepareLine,
+						))
+							->line($executeLine)
+							->identifier('pdoSql.extraParameter')
+							->build();
 					}
 				} else {
 					// execute() called without array, validate using bindValue/bindParam
@@ -238,23 +250,25 @@ class ValidatePdoParameterBindingsRule implements Rule
 					$extra = array_diff($boundParams, $placeholders);
 
 					foreach ($missing as $param) {
-						$errors[] = RuleErrorBuilder::message(
-							sprintf(
-								'Missing binding for :%s - SQL query (line %d) expects this parameter but no bindValue/bindParam found before execute()',
-								$param,
-								$prepareLine
-							)
-						)->line($executeLine)->identifier('pdoSql.missingBinding')->build();
+						$errors[] = RuleErrorBuilder::message(sprintf(
+							'Missing binding for :%s - SQL query (line %d) expects this parameter but no bindValue/bindParam found before execute()',
+							$param,
+							$prepareLine,
+						))
+							->line($executeLine)
+							->identifier('pdoSql.missingBinding')
+							->build();
 					}
 
 					foreach ($extra as $param) {
-						$errors[] = RuleErrorBuilder::message(
-							sprintf(
-								'Parameter :%s is bound but not used in SQL query (line %d)',
-								$param,
-								$prepareLine
-							)
-						)->line($executeLine)->identifier('pdoSql.extraBinding')->build();
+						$errors[] = RuleErrorBuilder::message(sprintf(
+							'Parameter :%s is bound but not used in SQL query (line %d)',
+							$param,
+							$prepareLine,
+						))
+							->line($executeLine)
+							->identifier('pdoSql.extraBinding')
+							->build();
 					}
 				}
 			}
@@ -278,7 +292,10 @@ class ValidatePdoParameterBindingsRule implements Rule
 			$sqlVariables = $this->extractSqlVariablesFromMethod($classMethod);
 
 			foreach ($classMethod->getStmts() ?? [] as $stmt) {
-				if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof Assign) {
+				if (
+					$stmt instanceof Node\Stmt\Expression
+					&& $stmt->expr instanceof Assign
+				) {
 					$assign = $stmt->expr;
 
 					// Check if left side is a property fetch ($this->something)
@@ -287,13 +304,13 @@ class ValidatePdoParameterBindingsRule implements Rule
 					}
 
 					$propertyFetch = $assign->var;
-     if (!$propertyFetch->var instanceof Variable) {
-         continue;
-     }
+					if (!$propertyFetch->var instanceof Variable) {
+						continue;
+					}
 
-     if ($propertyFetch->var->name !== 'this') {
-         continue;
-     }
+					if ($propertyFetch->var->name !== 'this') {
+						continue;
+					}
 
 					if (!$propertyFetch->name instanceof Node\Identifier) {
 						continue;
@@ -307,13 +324,13 @@ class ValidatePdoParameterBindingsRule implements Rule
 					}
 
 					$methodCall = $assign->expr;
-     if (!$methodCall->name instanceof Node\Identifier) {
-         continue;
-     }
+					if (!$methodCall->name instanceof Node\Identifier) {
+						continue;
+					}
 
-     if ($methodCall->name->toString() !== 'prepare') {
-         continue;
-     }
+					if ($methodCall->name->toString() !== 'prepare') {
+						continue;
+					}
 
 					// Extract SQL string
 					if ($methodCall->getArgs() === []) {
@@ -326,16 +343,12 @@ class ValidatePdoParameterBindingsRule implements Rule
 					// Case 1: Direct string literal
 					if ($firstArg instanceof String_) {
 						$sql = $firstArg->value;
-					}
-					// Case 2: Variable reference
-					elseif ($firstArg instanceof Variable && is_string($firstArg->name)) {
+					} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
 						$varName = $firstArg->name;
 						if (isset($sqlVariables[$varName])) {
 							$sql = $sqlVariables[$varName];
 						}
-					}
-					// Case 3: Interpolated string (e.g., "SELECT $col FROM ...")
-					elseif ($firstArg instanceof Encapsed) {
+					} elseif ($firstArg instanceof Encapsed) { // Case 3: Interpolated string (e.g., "SELECT $col FROM ...")
 						$placeholders = $this->extractPlaceholdersFromEncapsedString($firstArg);
 						// Use a placeholder SQL for line reference purposes
 						$sql = '[interpolated string]';
@@ -379,7 +392,10 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 		foreach ($class->getMethods() as $classMethod) {
 			foreach ($classMethod->getStmts() ?? [] as $stmt) {
-				if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof MethodCall) {
+				if (
+					$stmt instanceof Node\Stmt\Expression
+					&& $stmt->expr instanceof MethodCall
+				) {
 					$methodCall = $stmt->expr;
 
 					// Check if it's bindValue or bindParam
@@ -398,13 +414,13 @@ class ValidatePdoParameterBindingsRule implements Rule
 					}
 
 					$propertyFetch = $methodCall->var;
-     if (!$propertyFetch->var instanceof Variable) {
-         continue;
-     }
+					if (!$propertyFetch->var instanceof Variable) {
+						continue;
+					}
 
-     if ($propertyFetch->var->name !== 'this') {
-         continue;
-     }
+					if ($propertyFetch->var->name !== 'this') {
+						continue;
+					}
 
 					if (!$propertyFetch->name instanceof Node\Identifier) {
 						continue;
@@ -453,7 +469,10 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 		foreach ($class->getMethods() as $classMethod) {
 			foreach ($classMethod->getStmts() ?? [] as $stmt) {
-				if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof MethodCall) {
+				if (
+					$stmt instanceof Node\Stmt\Expression
+					&& $stmt->expr instanceof MethodCall
+				) {
 					$methodCall = $stmt->expr;
 
 					// Check if it's execute()
@@ -471,13 +490,13 @@ class ValidatePdoParameterBindingsRule implements Rule
 					}
 
 					$propertyFetch = $methodCall->var;
-     if (!$propertyFetch->var instanceof Variable) {
-         continue;
-     }
+					if (!$propertyFetch->var instanceof Variable) {
+						continue;
+					}
 
-     if ($propertyFetch->var->name !== 'this') {
-         continue;
-     }
+					if ($propertyFetch->var->name !== 'this') {
+						continue;
+					}
 
 					if (!$propertyFetch->name instanceof Node\Identifier) {
 						continue;
@@ -575,13 +594,13 @@ class ValidatePdoParameterBindingsRule implements Rule
 				}
 
 				$methodCall = $assign->expr;
-    if (!$methodCall->name instanceof Node\Identifier) {
-        continue;
-    }
+				if (!$methodCall->name instanceof Node\Identifier) {
+					continue;
+				}
 
-    if ($methodCall->name->toString() !== 'prepare') {
-        continue;
-    }
+				if ($methodCall->name->toString() !== 'prepare') {
+					continue;
+				}
 
 				if ($methodCall->getArgs() === []) {
 					continue;
@@ -593,16 +612,12 @@ class ValidatePdoParameterBindingsRule implements Rule
 				// Case 1: Direct string literal
 				if ($firstArg instanceof String_) {
 					$sql = $firstArg->value;
-				}
-				// Case 2: Variable reference
-				elseif ($firstArg instanceof Variable && is_string($firstArg->name)) {
+				} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
 					$varName = $firstArg->name;
 					if (isset($sqlVariables[$varName])) {
 						$sql = $sqlVariables[$varName];
 					}
-				}
-				// Case 3: Interpolated string (e.g., "SELECT $col FROM ...")
-				elseif ($firstArg instanceof Encapsed) {
+				} elseif ($firstArg instanceof Encapsed) { // Case 3: Interpolated string (e.g., "SELECT $col FROM ...")
 					$placeholders = $this->extractPlaceholdersFromEncapsedString($firstArg);
 					// Use a placeholder SQL for line reference purposes
 					$sql = '[interpolated string]';
@@ -641,21 +656,26 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array<array{line: int, params: array<string>|null}>
 	 */
-	private function extractLocalVariableExecuteCalls(ClassMethod $classMethod, string $varName): array
-	{
+	private function extractLocalVariableExecuteCalls(
+		ClassMethod $classMethod,
+		string $varName,
+	): array {
 		$executeCalls = [];
 
 		foreach ($classMethod->getStmts() ?? [] as $stmt) {
-			if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof MethodCall) {
+			if (
+				$stmt instanceof Node\Stmt\Expression
+				&& $stmt->expr instanceof MethodCall
+			) {
 				$methodCall = $stmt->expr;
-    // Check if it's execute()
-    if (!$methodCall->name instanceof Node\Identifier) {
-        continue;
-    }
+				// Check if it's execute()
+				if (!$methodCall->name instanceof Node\Identifier) {
+					continue;
+				}
 
-    if ($methodCall->name->toString() !== 'execute') {
-        continue;
-    }
+				if ($methodCall->name->toString() !== 'execute') {
+					continue;
+				}
 
 				// Check if called on our variable
 				if (!$methodCall->var instanceof Variable) {
@@ -705,12 +725,17 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array<string>
 	 */
-	private function extractLocalVariableBindings(ClassMethod $classMethod, string $varName): array
-	{
+	private function extractLocalVariableBindings(
+		ClassMethod $classMethod,
+		string $varName,
+	): array {
 		$bindings = [];
 
 		foreach ($classMethod->getStmts() ?? [] as $stmt) {
-			if ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof MethodCall) {
+			if (
+				$stmt instanceof Node\Stmt\Expression
+				&& $stmt->expr instanceof MethodCall
+			) {
 				$methodCall = $stmt->expr;
 
 				// Check if it's bindValue or bindParam
@@ -772,7 +797,9 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 		foreach ($stmts as $stmt) {
 			// Skip non-assignment statements
-			if (!($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof Assign)) {
+			if (
+				!($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof Assign)
+			) {
 				continue;
 			}
 
@@ -784,7 +811,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 			}
 
 			// Check if right side is a string
-			if (!($assign->expr instanceof String_)) {
+			if (!$assign->expr instanceof String_) {
 				continue;
 			}
 
@@ -805,7 +832,16 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 */
 	private function looksLikeSQL(string $str): bool
 	{
-		$sqlKeywords = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'REPLACE'];
+		$sqlKeywords = [
+			'SELECT',
+			'INSERT',
+			'UPDATE',
+			'DELETE',
+			'CREATE',
+			'DROP',
+			'ALTER',
+			'REPLACE',
+		];
 		$upperStr = strtoupper(trim($str));
 
 		foreach ($sqlKeywords as $sqlKeyword) {

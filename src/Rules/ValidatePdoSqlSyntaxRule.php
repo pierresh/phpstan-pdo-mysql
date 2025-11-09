@@ -3,16 +3,16 @@
 namespace Pierresh\PhpStanPdoMysql\Rules;
 
 use PhpParser\Node;
-use PhpParser\Node\Stmt\ClassMethod;
+use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\Variable;
-use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\ClassMethod;
 use PHPStan\Analyser\Scope;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
-use Pierresh\PhpStanPdoMysql\SqlLinter\SqlLinterInterface;
 use Pierresh\PhpStanPdoMysql\SqlLinter\SqlFtwAdapter;
+use Pierresh\PhpStanPdoMysql\SqlLinter\SqlLinterInterface;
 
 /**
  * This rule validates SQL syntax in PDO prepare() and query() method calls.
@@ -26,9 +26,9 @@ use Pierresh\PhpStanPdoMysql\SqlLinter\SqlFtwAdapter;
  */
 class ValidatePdoSqlSyntaxRule implements Rule
 {
-	public function __construct(private readonly SqlLinterInterface $sqlLinter)
-	{
-	}
+	public function __construct(
+		private readonly SqlLinterInterface $sqlLinter,
+	) {}
 
 	public function getNodeType(): string
 	{
@@ -70,8 +70,10 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 *
 	 * @param array<string, array{sql: string, line: int}> &$sqlVariables
 	 */
-	private function extractSqlVariablesRecursive(Node $node, array &$sqlVariables): void
-	{
+	private function extractSqlVariablesRecursive(
+		Node $node,
+		array &$sqlVariables,
+	): void {
 		// Look for assignments: $var = "SQL string"
 		if ($node instanceof Node\Stmt\Expression && $node->expr instanceof Assign) {
 			$assign = $node->expr;
@@ -116,39 +118,44 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
 	 * @param array<\PHPStan\Rules\RuleError> &$errors
 	 */
-	private function findPrepareQueryCalls(Node $node, array $sqlVariables, array &$errors): void
-	{
+	private function findPrepareQueryCalls(
+		Node $node,
+		array $sqlVariables,
+		array &$errors,
+	): void {
 		// Check if this is a prepare() or query() call
-		if ($node instanceof Node\Stmt\Expression && $node->expr instanceof MethodCall) {
+		if (
+			$node instanceof Node\Stmt\Expression
+			&& $node->expr instanceof MethodCall
+		) {
 			$methodCall = $node->expr;
 
 			if ($methodCall->name instanceof Node\Identifier) {
 				$methodName = $methodCall->name->toString();
 
-				if (($methodName === 'prepare' || $methodName === 'query') && $methodCall->getArgs() !== []) {
-        $firstArg = $methodCall->getArgs()[0]->value;
-        // Case 1: Direct string literal
-        if ($firstArg instanceof String_) {
-  							$errors = array_merge(
-  								$errors,
-  								$this->validateSqlQuery($firstArg->value, $node->getStartLine(), $methodName)
-  							);
-  						}
-  						// Case 2: Variable reference
-  						elseif ($firstArg instanceof Variable && is_string($firstArg->name)) {
-  							$varName = $firstArg->name;
-  							if (isset($sqlVariables[$varName])) {
-  								$errors = array_merge(
-  									$errors,
-  									$this->validateSqlQuery(
-  										$sqlVariables[$varName]['sql'],
-  										$node->getStartLine(),
-  										$methodName
-  									)
-  								);
-  							}
-  						}
-    }
+				if (
+					($methodName === 'prepare' || $methodName === 'query')
+					&& $methodCall->getArgs() !== []
+				) {
+					$firstArg = $methodCall->getArgs()[0]->value;
+					// Case 1: Direct string literal
+					if ($firstArg instanceof String_) {
+						$errors = array_merge($errors, $this->validateSqlQuery(
+							$firstArg->value,
+							$node->getStartLine(),
+							$methodName,
+						));
+					} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
+						$varName = $firstArg->name;
+						if (isset($sqlVariables[$varName])) {
+							$errors = array_merge($errors, $this->validateSqlQuery(
+								$sqlVariables[$varName]['sql'],
+								$node->getStartLine(),
+								$methodName,
+							));
+						}
+					}
+				}
 			}
 		}
 
@@ -161,30 +168,29 @@ class ValidatePdoSqlSyntaxRule implements Rule
 				if ($methodCall->name instanceof Node\Identifier) {
 					$methodName = $methodCall->name->toString();
 
-					if (($methodName === 'prepare' || $methodName === 'query') && $methodCall->getArgs() !== []) {
-         $firstArg = $methodCall->getArgs()[0]->value;
-         // Case 1: Direct string literal
-         if ($firstArg instanceof String_) {
-  								$errors = array_merge(
-  									$errors,
-  									$this->validateSqlQuery($firstArg->value, $node->getStartLine(), $methodName)
-  								);
-  							}
-  							// Case 2: Variable reference
-  							elseif ($firstArg instanceof Variable && is_string($firstArg->name)) {
-  								$varName = $firstArg->name;
-  								if (isset($sqlVariables[$varName])) {
-  									$errors = array_merge(
-  										$errors,
-  										$this->validateSqlQuery(
-  											$sqlVariables[$varName]['sql'],
-  											$node->getStartLine(),
-  											$methodName
-  										)
-  									);
-  								}
-  							}
-     }
+					if (
+						($methodName === 'prepare' || $methodName === 'query')
+						&& $methodCall->getArgs() !== []
+					) {
+						$firstArg = $methodCall->getArgs()[0]->value;
+						// Case 1: Direct string literal
+						if ($firstArg instanceof String_) {
+							$errors = array_merge($errors, $this->validateSqlQuery(
+								$firstArg->value,
+								$node->getStartLine(),
+								$methodName,
+							));
+						} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
+							$varName = $firstArg->name;
+							if (isset($sqlVariables[$varName])) {
+								$errors = array_merge($errors, $this->validateSqlQuery(
+									$sqlVariables[$varName]['sql'],
+									$node->getStartLine(),
+									$methodName,
+								));
+							}
+						}
+					}
 				}
 			}
 		}
@@ -210,7 +216,16 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 */
 	private function looksLikeSQL(string $str): bool
 	{
-		$sqlKeywords = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'REPLACE'];
+		$sqlKeywords = [
+			'SELECT',
+			'INSERT',
+			'UPDATE',
+			'DELETE',
+			'CREATE',
+			'DROP',
+			'ALTER',
+			'REPLACE',
+		];
 		$upperStr = strtoupper(trim($str));
 
 		foreach ($sqlKeywords as $sqlKeyword) {
@@ -228,8 +243,11 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 *
 	 * @return array<\PHPStan\Rules\RuleError>
 	 */
-	private function validateSqlQuery(string $sqlQuery, int $line, string $methodName): array
-	{
+	private function validateSqlQuery(
+		string $sqlQuery,
+		int $line,
+		string $methodName,
+	): array {
 		// Check if linter is available
 		if (!$this->sqlLinter->isAvailable()) {
 			// Silently skip if not installed - don't show warnings
@@ -242,13 +260,14 @@ class ValidatePdoSqlSyntaxRule implements Rule
 		$linterErrors = $this->sqlLinter->validate($sqlQuery);
 
 		foreach ($linterErrors as $linterError) {
-			$errors[] = RuleErrorBuilder::message(
-				sprintf(
-					'SQL syntax error in %s(): %s',
-					$methodName,
-					$linterError
-				)
-			)->line($line)->identifier('pdoSql.sqlSyntax')->build();
+			$errors[] = RuleErrorBuilder::message(sprintf(
+				'SQL syntax error in %s(): %s',
+				$methodName,
+				$linterError,
+			))
+				->line($line)
+				->identifier('pdoSql.sqlSyntax')
+				->build();
 		}
 
 		return $errors;

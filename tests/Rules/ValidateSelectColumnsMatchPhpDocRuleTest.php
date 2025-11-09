@@ -11,61 +11,61 @@ use Pierresh\PhpStanPdoMysql\Rules\ValidateSelectColumnsMatchPhpDocRule;
  */
 class ValidateSelectColumnsMatchPhpDocRuleTest extends RuleTestCase
 {
-    protected function getRule(): Rule
-    {
-        return new ValidateSelectColumnsMatchPhpDocRule();
-    }
+	protected function getRule(): Rule
+	{
+		return new ValidateSelectColumnsMatchPhpDocRule();
+	}
 
-    public function testRule(): void
-    {
-        $this->analyse([__DIR__ . '/../Fixtures/SelectColumnErrors.php'], [
-            [
-                'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 21) has "nam" - possible typo?',
-                24,
-            ],
-            [
-                'SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line 30)',
-                33,
-            ],
-            [
-                'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 48) has "nam" - possible typo?',
-                51,
-            ],
-            [
-                'SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line 48)',
-                51,
-            ],
-            [
-                'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 76) has "nam" - possible typo?',
-                79,
-            ],
-            [
-                'SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line 86)',
-                94,
-            ],
-            [
-                'Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line 139)',
-                142,
-            ],
-            [
-                'Type mismatch: fetch() returns object{...} but PHPDoc specifies array<object{...}> (line 160)',
-                163,
-            ],
-            [
-                'Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line 172)',
-                175,
-            ],
-            [
-                'Type mismatch: fetch() returns object{...} but PHPDoc specifies array<object{...}> (line 193)',
-                196,
-            ],
-        ]);
-    }
+	public function testRule(): void
+	{
+		$this->analyse([__DIR__ . '/../Fixtures/SelectColumnErrors.php'], [
+			[
+				'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 21) has "nam" - possible typo?',
+				24,
+			],
+			[
+				'SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line 30)',
+				33,
+			],
+			[
+				'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 50) has "nam" - possible typo?',
+				53,
+			],
+			[
+				'SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line 50)',
+				53,
+			],
+			[
+				'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 82) has "nam" - possible typo?',
+				85,
+			],
+			[
+				'SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line 92)',
+				102,
+			],
+			[
+				'Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line 151)',
+				154,
+			],
+			[
+				'Type mismatch: fetch() returns object{...} but PHPDoc specifies array<object{...}> (line 172)',
+				175,
+			],
+			[
+				'Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line 184)',
+				187,
+			],
+			[
+				'Type mismatch: fetch() returns object{...} but PHPDoc specifies array<object{...}> (line 205)',
+				208,
+			],
+		]);
+	}
 
-    public static function getAdditionalConfigFiles(): array
-    {
-        return [
-            __DIR__ . '/../../extension.neon',
-        ];
-    }
+	public static function getAdditionalConfigFiles(): array
+	{
+		return [
+			__DIR__ . '/../../extension.neon',
+		];
+	}
 }
