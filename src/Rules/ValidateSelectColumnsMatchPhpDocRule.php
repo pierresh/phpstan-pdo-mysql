@@ -619,20 +619,33 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 */
 	private function extractObjectShapeFromPhpDoc(string $docComment, string $annotation = '@return'): ?array
 	{
-		// First try to match array<object{...}> pattern
-		$arrayPattern = '/' . preg_quote($annotation, '/') . '\s+array<\s*object\s*\{([^}]+)\}\s*>/';
-		$matchCount = preg_match($arrayPattern, $docComment, $matches);
+		// Clean up doc comment: remove leading asterisks and normalize whitespace
+		// This handles multiline PHPDoc comments like:
+		// /**
+		//  * @var object{
+		//  *   id: int,
+		//  *   name: string
+		//  * }
+		//  */
+		$cleanedComment = preg_replace('/^\s*\*\s*/m', ' ', $docComment);
+		if (!is_string($cleanedComment)) {
+			return null;
+		}
+
+		// First try to match array<object{...}> pattern (with s modifier for multiline)
+		$arrayPattern = '/' . preg_quote($annotation, '/') . '\s+array<\s*object\s*\{([^}]+)\}\s*>/s';
+		$matchCount = preg_match($arrayPattern, $cleanedComment, $matches);
 
 		// If not found, try object{...}[] pattern (suffix syntax)
 		if ($matchCount === false || $matchCount === 0) {
-			$suffixPattern = '/' . preg_quote($annotation, '/') . '\s+object\s*\{([^}]+)\}\s*\[\]/';
-			$matchCount = preg_match($suffixPattern, $docComment, $matches);
+			$suffixPattern = '/' . preg_quote($annotation, '/') . '\s+object\s*\{([^}]+)\}\s*\[\]/s';
+			$matchCount = preg_match($suffixPattern, $cleanedComment, $matches);
 		}
 
 		// If not found, try simple object{...} pattern
 		if ($matchCount === false || $matchCount === 0) {
-			$pattern = '/' . preg_quote($annotation, '/') . '\s+object\s*\{([^}]+)\}/';
-			$matchCount = preg_match($pattern, $docComment, $matches);
+			$pattern = '/' . preg_quote($annotation, '/') . '\s+object\s*\{([^}]+)\}/s';
+			$matchCount = preg_match($pattern, $cleanedComment, $matches);
 			if ($matchCount === false || $matchCount === 0) {
 				return null;
 			}
