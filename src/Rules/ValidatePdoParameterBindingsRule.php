@@ -102,9 +102,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 					foreach ($missing as $param) {
 						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Missing parameter :%s in execute() array - SQL query (line %d) expects this parameter',
+							'Missing parameter :%s in execute()',
 							$param,
-							$prepareLine,
 						))
 							->line($executeLine)
 							->identifier('pdoSql.missingParameter')
@@ -113,9 +112,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 					foreach ($extra as $param) {
 						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Parameter :%s in execute() array is not used in SQL query (line %d)',
+							'Parameter :%s in execute() is not used',
 							$param,
-							$prepareLine,
 						))
 							->line($executeLine)
 							->identifier('pdoSql.extraParameter')
@@ -132,9 +130,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 					foreach ($missing as $param) {
 						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Missing binding for :%s - SQL query (line %d) expects this parameter but no bindValue/bindParam found before execute()',
+							'Missing bindValue/bindParam for :%s',
 							$param,
-							$prepareLine,
 						))
 							->line($executeLine)
 							->identifier('pdoSql.missingBinding')
@@ -147,9 +144,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 							$bindingLine =
 								$propertyBindings[$propertyName]['locations'][$param] ?? $executeLine;
 							$errors[] = RuleErrorBuilder::message(sprintf(
-								'Parameter :%s is bound but not used in SQL query (line %d)',
+								'Parameter :%s is bound but not used',
 								$param,
-								$prepareLine,
 							))
 								->line($bindingLine)
 								->identifier('pdoSql.extraBinding')
@@ -225,9 +221,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 					foreach ($missing as $param) {
 						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Missing parameter :%s in execute() array - SQL query (line %d) expects this parameter',
+							'Missing parameter :%s in execute()',
 							$param,
-							$prepareLine,
 						))
 							->line($executeLine)
 							->identifier('pdoSql.missingParameter')
@@ -236,9 +231,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 					foreach ($extra as $param) {
 						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Parameter :%s in execute() array is not used in SQL query (line %d)',
+							'Parameter :%s in execute() is not used',
 							$param,
-							$prepareLine,
 						))
 							->line($executeLine)
 							->identifier('pdoSql.extraParameter')
@@ -251,9 +245,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 					foreach ($missing as $param) {
 						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Missing binding for :%s - SQL query (line %d) expects this parameter but no bindValue/bindParam found before execute()',
+							'Missing bindValue/bindParam for :%s',
 							$param,
-							$prepareLine,
 						))
 							->line($executeLine)
 							->identifier('pdoSql.missingBinding')
@@ -262,9 +255,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 					foreach ($extra as $param) {
 						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Parameter :%s is bound but not used in SQL query (line %d)',
+							'Parameter :%s is bound but not used',
 							$param,
-							$prepareLine,
 						))
 							->line($executeLine)
 							->identifier('pdoSql.extraBinding')
