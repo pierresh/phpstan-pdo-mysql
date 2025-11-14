@@ -49,6 +49,24 @@ class SqlFtwAdapter implements SqlLinterInterface
 				if ($command instanceof InvalidCommand) {
 					$exception = $command->getException();
 					$errorMessage = $exception->getMessage();
+					$sqlLine = null;
+
+					// Try to extract the SQL line number from the error token
+					if (preg_match('/at position (\d+)/', $errorMessage, $matches)) {
+						$tokenIndex = (int) $matches[1];
+						// @phpstan-ignore-next-line - InvalidCommand always throws InvalidTokenException which has getTokenList()
+						$tokenList = $exception->getTokenList();
+						$tokens = $tokenList->getTokens();
+
+						if (isset($tokens[$tokenIndex])) {
+							$sqlLine = $tokens[$tokenIndex]->row;
+						} elseif (count($tokens) > 0) {
+							// If token index is out of bounds (e.g., "end of query"),
+							// use the last token's row
+							$lastToken = end($tokens);
+							$sqlLine = $lastToken->row;
+						}
+					}
 
 					// Clean up the error message - remove the SQL context for brevity
 					if (str_contains($errorMessage, ' at position ')) {
@@ -57,12 +75,18 @@ class SqlFtwAdapter implements SqlLinterInterface
 							?? $errorMessage;
 					}
 
-					$errors[] = $errorMessage;
+					$errors[] = [
+						'message' => $errorMessage,
+						'sqlLine' => $sqlLine,
+					];
 				}
 			}
 		} catch (\Exception $exception) {
 			// If parsing completely fails, report the error
-			$errors[] = $exception->getMessage();
+			$errors[] = [
+				'message' => $exception->getMessage(),
+				'sqlLine' => null,
+			];
 		}
 
 		return $errors;

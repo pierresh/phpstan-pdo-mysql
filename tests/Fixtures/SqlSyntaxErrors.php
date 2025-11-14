@@ -34,4 +34,20 @@ class SqlSyntaxErrors
             VALUES (1, 'John', 'john@example.com',)
         ");
 	}
+
+	public function multiLineErrorOnLine2(): void
+	{
+		// Error on the second line of SQL - trailing comma after "name"
+		$stmt = $this->db->prepare('SELECT id, name,
+            FROM users
+            WHERE id = 1');
+	}
+
+	public function multiLineErrorOnLine3(): void
+	{
+		// Error on the third line of SQL
+		$stmt = $this->db->prepare('SELECT id, name
+            FROM users
+            WHERE'); // Incomplete WHERE clause
+	}
 }

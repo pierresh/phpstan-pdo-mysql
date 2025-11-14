@@ -14,7 +14,7 @@ interface SqlLinterInterface
 	 * Validate SQL query syntax.
 	 *
 	 * @param string $sqlQuery The SQL query to validate
-	 * @return array<string> Array of error messages (empty if valid)
+	 * @return array<array{message: string, sqlLine: int|null}> Array of errors with message and SQL line number (1-indexed, relative to SQL string)
 	 */
 	public function validate(string $sqlQuery): array;
 

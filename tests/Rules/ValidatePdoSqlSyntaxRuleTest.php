@@ -26,7 +26,15 @@ class ValidatePdoSqlSyntaxRuleTest extends RuleTestCase
 			],
 			[
 				'SQL syntax error in prepare(): Expected token NAME|VALUE, but token SYMBOL with value ")" (1) found instead.',
-				32,
+				34, // Error on line 2 of the multi-line SQL (line 33 + 1)
+			],
+			[
+				'SQL syntax error in prepare(): Expected token NAME ~RESERVED, but token NAME|UNQUOTED_NAME|KEYWORD|RESERVED with value "FROM" (4) found instead.',
+				42, // Error on line 2 of the multi-line SQL (line 41 + 1)
+			],
+			[
+				'SQL syntax error in prepare(): Expected token NAME|VALUE, but end of query found instead.',
+				51, // Error on line 3 of the multi-line SQL (line 49 + 2)
 			],
 		]);
 	}

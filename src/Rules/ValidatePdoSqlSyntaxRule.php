@@ -260,12 +260,22 @@ class ValidatePdoSqlSyntaxRule implements Rule
 		$linterErrors = $this->sqlLinter->validate($sqlQuery);
 
 		foreach ($linterErrors as $linterError) {
+			// Calculate the actual PHP line number based on SQL line
+			// $line is the PHP line where the SQL string starts
+			// $linterError['sqlLine'] is the line within the SQL string (1-indexed)
+			$errorLine = $line;
+			if ($linterError['sqlLine'] !== null && $linterError['sqlLine'] > 1) {
+				// Add offset for multi-line SQL strings
+				// sqlLine 1 = line where SQL starts, sqlLine 2 = line + 1, etc.
+				$errorLine = $line + ($linterError['sqlLine'] - 1);
+			}
+
 			$errors[] = RuleErrorBuilder::message(sprintf(
 				'SQL syntax error in %s(): %s',
 				$methodName,
-				$linterError,
+				$linterError['message'],
 			))
-				->line($line)
+				->line($errorLine)
 				->identifier('pdoSql.sqlSyntax')
 				->build();
 		}

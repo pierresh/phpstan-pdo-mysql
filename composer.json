@@ -33,13 +33,27 @@
     },
     "scripts": {
         "test": "./vendor/bin/phpunit-watcher watch",
+        "test:run": "./vendor/bin/phpunit",
+        "stan": "./vendor/bin/phpstan analyze src -c phpstan.neon --error-format=table --no-progress",
         "analyze": "./vendor/bin/phpstan analyze -c extension.neon --level=max ./src",
-        "refactor": "./vendor/bin/rector process",
-        "refactor:dry": "./vendor/bin/rector process --dry-run",
+        "refactor": "./vendor/bin/rector process src tests",
+        "refactor:dry": "./vendor/bin/rector process src tests --dry-run",
         "format": "./vendor/bin/mago format src tests",
         "format:check": "./vendor/bin/mago format --dry-run src tests",
         "lint": "./vendor/bin/mago lint src tests",
-        "mago:analyze": "./vendor/bin/mago analyze src tests"
+        "mago:analyze": "./vendor/bin/mago analyze src tests",
+        "quality": [
+            "@stan",
+            "@refactor:dry",
+            "@format",
+            "@test:run"
+        ],
+        "quality:fix": [
+            "@stan",
+            "@refactor",
+            "@format",
+            "@test:run"
+        ]
     },
     "extra": {
         "phpstan": {
