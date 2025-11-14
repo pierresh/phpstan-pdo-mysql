@@ -64,6 +64,30 @@ class ValidatePdoParameterBindingsRuleTest extends RuleTestCase
 				'Parameter :name in execute() array is not used in SQL query (line 110)',
 				111,
 			],
+			[
+				'Missing binding for :user_id - SQL query (line 117) expects this parameter but no bindValue/bindParam found before execute()',
+				119,
+			],
+			[
+				'Parameter :user_i is bound but not used in SQL query (line 117)',
+				119,
+			],
+			[
+				'Missing binding for :issue_code - SQL query (line 134) expects this parameter but no bindValue/bindParam found before execute()',
+				148,
+			],
+			[
+				'Parameter :issu_code is bound but not used in SQL query (line 134)',
+				154,
+			],
+			[
+				'Missing binding for :issue_code - SQL query (line 134) expects this parameter but no bindValue/bindParam found before execute()',
+				157,
+			],
+			[
+				'Parameter :issu_code is bound but not used in SQL query (line 134)',
+				154,
+			],
 		]);
 	}
 

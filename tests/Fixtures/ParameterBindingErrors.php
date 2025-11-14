@@ -110,4 +110,52 @@ class ParameterBindingErrors
 		$stmt = $this->db->prepare('SELECT id, name FROM users');
 		$stmt->execute(['id' => 1, 'name' => 'test']); // Extra parameters!
 	}
+
+	public function typoInBindValue(): void
+	{
+		// Typo in bindValue parameter name
+		$stmt = $this->db->prepare('SELECT * FROM users WHERE id = :user_id');
+		$stmt->bindValue(':user_i', 1); // Typo: should be :user_id
+		$stmt->execute();
+	}
+}
+
+class PropertyBindingErrors
+{
+	private PDO $db;
+
+	private \PDOStatement $query;
+
+	public function __construct(PDO $db)
+	{
+		$this->db = $db;
+
+		// Prepare statement with :issue_code and :sp_code parameters
+		$this->query = $this->db->prepare('
+			INSERT INTO sp_issue_details (issue_id, sp_id)
+			VALUES (
+				(SELECT issue_id FROM sp_issue WHERE issue_code = :issue_code),
+				(SELECT sp_id FROM sp_list WHERE sp_code = :sp_code)
+			)
+		');
+	}
+
+	public function handleIssueDetails(): void
+	{
+		// Typo in bindValue: :issu_code instead of :issue_code
+		$this->query->bindValue(':issu_code', 'ABC123'); // Typo!
+		$this->query->bindValue(':sp_code', 'SP001');
+		$this->query->execute();
+	}
+
+	public function handleIssueDetailsInIf(): void
+	{
+		// execute() inside if statement should also be detected
+		$this->query->bindValue(':issu_code', 'ABC123'); // Typo!
+		$this->query->bindValue(':sp_code', 'SP001');
+
+		if ($this->query->execute()) {
+			echo 'Success';
+		}
+	}
 }

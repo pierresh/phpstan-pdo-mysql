@@ -391,62 +391,17 @@ class ValidatePdoParameterBindingsRule implements Rule
 		$bindings = [];
 
 		foreach ($class->getMethods() as $classMethod) {
-			foreach ($classMethod->getStmts() ?? [] as $stmt) {
-				if (
-					$stmt instanceof Node\Stmt\Expression
-					&& $stmt->expr instanceof MethodCall
-				) {
-					$methodCall = $stmt->expr;
+			$bindCalls = $this->findBindCallsInNode($classMethod);
 
-					// Check if it's bindValue or bindParam
-					if (!$methodCall->name instanceof Node\Identifier) {
-						continue;
-					}
-
-					$methodName = $methodCall->name->toString();
-					if ($methodName !== 'bindValue' && $methodName !== 'bindParam') {
-						continue;
-					}
-
-					// Check if called on a property ($this->query->bindValue)
-					if (!$methodCall->var instanceof PropertyFetch) {
-						continue;
-					}
-
-					$propertyFetch = $methodCall->var;
-					if (!$propertyFetch->var instanceof Variable) {
-						continue;
-					}
-
-					if ($propertyFetch->var->name !== 'this') {
-						continue;
-					}
-
-					if (!$propertyFetch->name instanceof Node\Identifier) {
-						continue;
-					}
-
-					$propertyName = '$this->' . $propertyFetch->name->toString();
-
-					// Extract parameter name
-					if ($methodCall->getArgs() === []) {
-						continue;
-					}
-
-					$firstArg = $methodCall->getArgs()[0]->value;
-					if (!$firstArg instanceof String_) {
-						continue;
-					}
-
-					$paramName = ltrim($firstArg->value, ':');
-
-					if (!isset($bindings[$propertyName])) {
-						$bindings[$propertyName] = ['params' => [], 'locations' => []];
-					}
-
-					$bindings[$propertyName]['params'][] = $paramName;
-					$bindings[$propertyName]['locations'][$paramName] = $stmt->getStartLine();
+			foreach ($bindCalls as $bindCall) {
+				$propertyName = $bindCall['property'];
+				if (!isset($bindings[$propertyName])) {
+					$bindings[$propertyName] = ['params' => [], 'locations' => []];
 				}
+
+				$bindings[$propertyName]['params'][] = $bindCall['param'];
+				$bindings[$propertyName]['locations'][$bindCall['param']] =
+					$bindCall['line'];
 			}
 		}
 
@@ -459,6 +414,68 @@ class ValidatePdoParameterBindingsRule implements Rule
 	}
 
 	/**
+	 * Recursively find all bindValue/bindParam calls on properties in a node
+	 *
+	 * @return array<array{property: string, param: string, line: int}>
+	 */
+	private function findBindCallsInNode(Node $node): array
+	{
+		$results = [];
+
+		// If this node is a bindValue/bindParam call on a property, add it
+		if (
+			$node instanceof MethodCall && (
+				$node->name instanceof Node\Identifier
+				&& in_array($node->name->toString(), ['bindValue', 'bindParam'])
+				&& $node->var instanceof PropertyFetch
+			)
+		) {
+			$propertyFetch = $node->var;
+			if (
+				$propertyFetch->var instanceof Variable
+				&& $propertyFetch->var->name === 'this'
+				&& $propertyFetch->name instanceof Node\Identifier
+			) {
+				$propertyName = '$this->' . $propertyFetch->name->toString();
+
+				// Extract parameter name
+				if ($node->getArgs() !== []) {
+					$firstArg = $node->getArgs()[0]->value;
+					if ($firstArg instanceof String_) {
+						$paramName = ltrim($firstArg->value, ':');
+
+						$results[] = [
+							'property' => $propertyName,
+							'param' => $paramName,
+							'line' => $node->getStartLine(),
+						];
+					}
+				}
+			}
+		}
+
+		// Recursively search child nodes
+		foreach ($node->getSubNodeNames() as $subNodeName) {
+			$subNode = $node->{$subNodeName};
+
+			if ($subNode instanceof Node) {
+				$results = array_merge($results, $this->findBindCallsInNode($subNode));
+			} elseif (is_array($subNode)) {
+				foreach ($subNode as $subNodeItem) {
+					if ($subNodeItem instanceof Node) {
+						$results = array_merge(
+							$results,
+							$this->findBindCallsInNode($subNodeItem),
+						);
+					}
+				}
+			}
+		}
+
+		return $results;
+	}
+
+	/**
 	 * Extract execute() call locations and their parameters
 	 *
 	 * @return array<string, array<array{line: int, params: array<string>|null}>> Property name => [execute calls with line and params]
@@ -468,75 +485,94 @@ class ValidatePdoParameterBindingsRule implements Rule
 		$locations = [];
 
 		foreach ($class->getMethods() as $classMethod) {
-			foreach ($classMethod->getStmts() ?? [] as $stmt) {
-				if (
-					$stmt instanceof Node\Stmt\Expression
-					&& $stmt->expr instanceof MethodCall
-				) {
-					$methodCall = $stmt->expr;
+			$executeCalls = $this->findExecuteCallsInNode($classMethod);
 
-					// Check if it's execute()
-					if (!$methodCall->name instanceof Node\Identifier) {
-						continue;
-					}
-
-					if ($methodCall->name->toString() !== 'execute') {
-						continue;
-					}
-
-					// Check if called on a property ($this->query->execute)
-					if (!$methodCall->var instanceof PropertyFetch) {
-						continue;
-					}
-
-					$propertyFetch = $methodCall->var;
-					if (!$propertyFetch->var instanceof Variable) {
-						continue;
-					}
-
-					if ($propertyFetch->var->name !== 'this') {
-						continue;
-					}
-
-					if (!$propertyFetch->name instanceof Node\Identifier) {
-						continue;
-					}
-
-					$propertyName = '$this->' . $propertyFetch->name->toString();
-
-					// Extract parameters if execute() is called with an array
-					$params = null;
-					if ($methodCall->getArgs() !== []) {
-						$firstArg = $methodCall->getArgs()[0]->value;
-						if ($firstArg instanceof Node\Expr\Array_) {
-							$params = [];
-							foreach ($firstArg->items as $item) {
-								// Skip null items (e.g., from trailing commas)
-								if (!$item instanceof Node\Expr\ArrayItem) {
-									continue;
-								}
-
-								if ($item->key instanceof String_) {
-									// Strip leading ':' to normalize parameter names
-									$params[] = ltrim($item->key->value, ':');
-								}
-							}
-						}
-					}
-
-					if (!isset($locations[$propertyName])) {
-						$locations[$propertyName] = [];
-					}
-
-					$locations[$propertyName][] = [
-						'line' => $stmt->getStartLine(),
-						'params' => $params,
-					];
+			foreach ($executeCalls as $executeCall) {
+				$propertyName = $executeCall['property'];
+				if (!isset($locations[$propertyName])) {
+					$locations[$propertyName] = [];
 				}
+
+				$locations[$propertyName][] = [
+					'line' => $executeCall['line'],
+					'params' => $executeCall['params'],
+				];
 			}
 		}
 
 		return $locations;
+	}
+
+	/**
+	 * Recursively find all execute() calls on properties in a node
+	 *
+	 * @return array<array{property: string, line: int, params: array<string>|null}>
+	 */
+	private function findExecuteCallsInNode(Node $node): array
+	{
+		$results = [];
+
+		// If this node is an execute() call on a property, add it
+		if (
+			$node instanceof MethodCall && (
+				$node->name instanceof Node\Identifier
+				&& $node->name->toString() === 'execute'
+				&& $node->var instanceof PropertyFetch
+			)
+		) {
+			$propertyFetch = $node->var;
+			if (
+				$propertyFetch->var instanceof Variable
+				&& $propertyFetch->var->name === 'this'
+				&& $propertyFetch->name instanceof Node\Identifier
+			) {
+				$propertyName = '$this->' . $propertyFetch->name->toString();
+
+				// Extract parameters if execute() is called with an array
+				$params = null;
+				if ($node->getArgs() !== []) {
+					$firstArg = $node->getArgs()[0]->value;
+					if ($firstArg instanceof Node\Expr\Array_) {
+						$params = [];
+						foreach ($firstArg->items as $item) {
+							if (!$item instanceof Node\Expr\ArrayItem) {
+								continue;
+							}
+
+							if ($item->key instanceof String_) {
+								$params[] = ltrim($item->key->value, ':');
+							}
+						}
+					}
+				}
+
+				$results[] = [
+					'property' => $propertyName,
+					'line' => $node->getStartLine(),
+					'params' => $params,
+				];
+			}
+		}
+
+		// Recursively search child nodes
+		foreach ($node->getSubNodeNames() as $subNodeName) {
+			$subNode = $node->{$subNodeName};
+
+			if ($subNode instanceof Node) {
+				$results = array_merge($results, $this->findExecuteCallsInNode($subNode));
+			} elseif (is_array($subNode)) {
+				foreach ($subNode as $subNodeItem) {
+					if ($subNodeItem instanceof Node) {
+						$results = array_merge(
+							$results,
+							$this->findExecuteCallsInNode($subNodeItem),
+						);
+					}
+				}
+			}
+		}
+
+		return $results;
 	}
 
 	/**
