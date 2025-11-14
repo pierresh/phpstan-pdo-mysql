@@ -137,6 +137,37 @@ All development should follow the TDD cycle:
 3. **Verify all tests pass** - Ensure no regressions
 4. **Refactor if needed** - Improve code quality while keeping tests green
 
+### Quality Checks Before Commit
+
+**MANDATORY: Run `composer quality` before EVERY commit**
+
+```bash
+composer quality
+```
+
+This command runs all quality checks in sequence:
+1. ✅ **PHPStan** - Static analysis at max level (must have no errors)
+2. ✅ **Rector** - Code quality suggestions (dry-run, shows what would change)
+3. ✅ **Mago** - Code formatting (applies formatting automatically)
+4. ✅ **PHPUnit** - All tests must pass
+
+**Only commit if all checks pass with no errors.**
+
+If Rector suggests changes you want to apply:
+```bash
+composer quality:fix
+```
+
+This applies Rector refactoring changes in addition to the other checks.
+
+Available quality scripts:
+- `composer quality` - Check code quality (safe, only applies formatting)
+- `composer quality:fix` - Check and fix code quality (applies all improvements)
+- `composer stan` - Run PHPStan only
+- `composer test:run` - Run tests once
+- `composer refactor:dry` - Preview Rector suggestions
+- `composer format:check` - Check formatting without applying
+
 ### When Adding Features (TDD Approach)
 1. **Write failing test first**: Add a new method to the fixture file with the intentional error/behavior
 2. **Update test expectations**: Add the expected error message and line number to the test
