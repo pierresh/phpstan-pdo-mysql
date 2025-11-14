@@ -32,16 +32,18 @@ tests/                               # PHPUnit tests
     ValidatePdoSqlSyntaxRuleTest.php
     ValidatePdoParameterBindingsRuleTest.php
     ValidateSelectColumnsMatchPhpDocRuleTest.php
+    DetectSelfReferenceConditionsRuleTest.php
   Fixtures/                          # Test fixture files with intentional errors
     SqlSyntaxErrors.php
     ParameterBindingErrors.php
     SelectColumnErrors.php
+    SelfReferenceErrors.php
 
 extension.neon                       # PHPStan configuration that registers the rules
 composer.json                        # Package definition
 ```
 
-## The Three Rules
+## The Four Rules
 
 ### 1. ValidatePdoSqlSyntaxRule
 - **Purpose**: Catches MySQL syntax errors in `prepare()` and `query()` calls
@@ -58,6 +60,13 @@ composer.json                        # Package definition
 - **Supports**: Direct annotations (`@var object{...}`) and type aliases (`@phpstan-type`)
 - **Validates**: Missing columns, column name typos (case-sensitive)
 - **Allows**: Extra columns in SELECT (selecting more than PHPDoc expects is fine)
+
+### 4. DetectSelfReferenceConditionsRule
+- **Purpose**: Catches useless self-reference conditions in SQL queries
+- **Examples**: `JOIN sp_list ON sp_list.sp_id = sp_list.sp_id`, `WHERE users.id = users.id`
+- **Detects**: Self-references in both JOIN ON clauses and WHERE conditions
+- **Supports**: SELECT queries and INSERT...SELECT queries
+- **Key feature**: Preprocesses PDO placeholders (`:name`) before parsing for structure analysis
 
 ## Common Patterns
 

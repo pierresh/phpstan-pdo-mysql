@@ -14,3 +14,7 @@ services:
         class: Pierresh\PhpStanPdoMysql\Rules\ValidateSelectColumnsMatchPhpDocRule
         tags:
             - phpstan.rules.rule
+    -
+        class: Pierresh\PhpStanPdoMysql\Rules\DetectSelfReferenceConditionsRule
+        tags:
+            - phpstan.rules.rule

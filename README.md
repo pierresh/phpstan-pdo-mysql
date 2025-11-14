@@ -4,11 +4,12 @@ Static analysis rules for PHPStan that validate PDO/MySQL code for common errors
 
 ## Features
 
-This extension provides three powerful rules that work without requiring a database connection:
+This extension provides four powerful rules that work without requiring a database connection:
 
 1. **SQL Syntax Validation** - Detects MySQL syntax errors in `prepare()` and `query()` calls
 2. **Parameter Binding Validation** - Ensures PDO parameters match SQL placeholders
 3. **SELECT Column Validation** - Verifies SELECT columns match PHPDoc type annotations
+4. **Self-Reference Detection** - Catches self-reference conditions in JOIN and WHERE clauses
 
 All validation is performed statically by analyzing your code, so no database setup is needed.
 
@@ -244,6 +245,73 @@ $user = $stmt->fetch();
 > - Generic syntax: `array<object{...}>`
 > - Suffix syntax: `object{...}[]`
 
+### 4. Self-Reference Detection
+
+Detects useless self-reference conditions where the same column is compared to itself. This is almost always a bug where the developer meant to reference a different table or column.
+
+```php
+// ❌ Self-reference in JOIN condition
+$stmt = $db->prepare("
+    SELECT *
+    FROM orders
+    INNER JOIN users ON users.id = users.id
+");
+```
+
+> [!CAUTION]
+> Error: Self-referencing JOIN condition: 'users.id = users.id'
+
+```php
+// ❌ Self-reference in WHERE clause
+$stmt = $db->prepare("
+    SELECT *
+    FROM products
+    WHERE products.category_id = products.category_id
+");
+```
+
+> [!CAUTION]
+> Error: Self-referencing WHERE condition: 'products.category_id = products.category_id'
+
+```php
+// ❌ Multiple self-references in same query
+$stmt = $db->prepare("
+    SELECT *
+    FROM customized_mr_list_sp
+    INNER JOIN sp_list ON sp_list.sp_id = sp_list.sp_id
+    WHERE sp_list.active = sp_list.active
+");
+```
+
+> [!CAUTION]
+> Error: Self-referencing JOIN condition: 'sp_list.sp_id = sp_list.sp_id'
+> Error: Self-referencing WHERE condition: 'sp_list.active = sp_list.active'
+
+```php
+// ✅ Valid JOIN - different columns
+$stmt = $db->prepare("
+    SELECT *
+    FROM orders
+    INNER JOIN users ON orders.user_id = users.id
+");
+
+// ✅ Valid WHERE - comparing to a value
+$stmt = $db->prepare("
+    SELECT *
+    FROM products
+    WHERE products.category_id = 5
+");
+```
+
+> [!NOTE]
+> This rule works with:
+> - `INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN` conditions
+> - `WHERE` clause conditions (including `AND`/`OR` combinations)
+> - Both `SELECT` and `INSERT...SELECT` queries
+> - Queries with PDO placeholders (`:parameter`)
+
+The rule reports errors on the exact line where the self-reference occurs, making it easy to locate and fix the issue.
+
 ## Requirements
 
 - PHP 8.1+
@@ -252,7 +320,7 @@ $user = $stmt->fetch();
 
 ## How It Works
 
-All three rules use a two-pass analysis approach:
+All four rules use a two-pass analysis approach:
 
 1. **First pass**: Scan the method for SQL query strings (both direct literals and variables)
 2. **Second pass**: Find all `prepare()`/`query()` calls and validate them
@@ -306,6 +374,9 @@ parameters:
         - identifier: pdoSql.columnMismatch
         - identifier: pdoSql.columnMissing
         - identifier: pdoSql.fetchTypeMismatch
+
+        # Ignore all self-reference detection errors
+        - identifier: pdoSql.selfReferenceCondition
 ```
 
 You can also ignore errors by path or message pattern:
@@ -336,6 +407,7 @@ parameters:
 | `pdoSql.columnMismatch` | SELECT Column Validation | Column name typo detected (case-sensitive) |
 | `pdoSql.columnMissing` | SELECT Column Validation | PHPDoc property missing from SELECT  |
 | `pdoSql.fetchTypeMismatch` | SELECT Column Validation | Fetch method doesn't match PHPDoc type structure |
+| `pdoSql.selfReferenceCondition` | Self-Reference Detection | Self-referencing condition in JOIN or WHERE clause |
 
 ## Playground
 
