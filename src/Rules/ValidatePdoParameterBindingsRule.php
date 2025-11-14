@@ -59,100 +59,197 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 */
 	private function validateClassProperties(Class_ $class): array
 	{
-		$errors = [];
-
-		// Extract all property preparations (e.g., $this->query = $db->prepare(...))
 		$propertyPreparations = $this->extractPropertyPreparations($class);
 
 		if ($propertyPreparations === []) {
 			return [];
 		}
 
-		// Extract all property bindings across all methods
 		$propertyBindings = $this->extractPropertyBindings($class);
-
-		// Extract execute() calls with their parameters
 		$executeCalls = $this->extractExecuteLocations($class);
 
-		// Validate each property
+		return $this->validateAllPropertyPreparations(
+			$propertyPreparations,
+			$propertyBindings,
+			$executeCalls,
+		);
+	}
+
+	/**
+	 * Validate all property preparations against their execute calls
+	 *
+	 * @param array<string, array{placeholders: array<string>, line: int, sql: string}> $propertyPreparations
+	 * @param array<string, array{params: array<string>, locations: array<string, int>}> $propertyBindings
+	 * @param array<string, array<array{line: int, params: array<string>|null}>> $executeCalls
+	 * @return array<\PHPStan\Rules\RuleError>
+	 */
+	private function validateAllPropertyPreparations(
+		array $propertyPreparations,
+		array $propertyBindings,
+		array $executeCalls,
+	): array {
+		$errors = [];
+
 		foreach ($propertyPreparations as $propertyName => $info) {
-			$placeholders = $info['placeholders'];
-			$prepareLine = $info['line'];
+			$propertyErrors = $this->validateSinglePropertyPreparation(
+				$propertyName,
+				$info,
+				$propertyBindings,
+				$executeCalls,
+			);
+			$errors = array_merge($errors, $propertyErrors);
+		}
 
-			// Get all execute() calls for this property
-			$executes = $executeCalls[$propertyName] ?? [];
+		return $errors;
+	}
 
-			// If no execute() calls found, skip validation
-			if (count($executes) === 0) {
-				continue;
-			}
+	/**
+	 * Validate a single property preparation
+	 *
+	 * @param array{placeholders: array<string>, line: int, sql: string} $info
+	 * @param array<string, array{params: array<string>, locations: array<string, int>}> $propertyBindings
+	 * @param array<string, array<array{line: int, params: array<string>|null}>> $executeCalls
+	 * @return array<\PHPStan\Rules\RuleError>
+	 */
+	private function validateSinglePropertyPreparation(
+		string $propertyName,
+		array $info,
+		array $propertyBindings,
+		array $executeCalls,
+	): array {
+		$placeholders = $info['placeholders'];
+		$executes = $executeCalls[$propertyName] ?? [];
 
-			// Validate each execute() call separately
-			foreach ($executes as $execute) {
-				$executeLine = $execute['line'];
-				$executeParams = $execute['params'];
+		if (count($executes) === 0) {
+			return [];
+		}
 
-				// If execute() is called with an array, validate only those parameters
-				// and ignore any bindValue/bindParam calls
-				if ($executeParams !== null) {
-					// Check for missing parameters
-					$missing = array_diff($placeholders, $executeParams);
-					// Check for extra parameters
-					$extra = array_diff($executeParams, $placeholders);
+		$errors = [];
+		foreach ($executes as $execute) {
+			$executeErrors = $this->validatePropertyExecuteCall(
+				$execute,
+				$placeholders,
+				$propertyName,
+				$propertyBindings,
+			);
+			$errors = array_merge($errors, $executeErrors);
+		}
 
-					foreach ($missing as $param) {
-						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Missing parameter :%s in execute()',
-							$param,
-						))
-							->line($executeLine)
-							->identifier('pdoSql.missingParameter')
-							->build();
-					}
+		return $errors;
+	}
 
-					foreach ($extra as $param) {
-						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Parameter :%s in execute() is not used',
-							$param,
-						))
-							->line($executeLine)
-							->identifier('pdoSql.extraParameter')
-							->build();
-					}
-				} else {
-					// execute() called without parameters, validate using bindValue/bindParam
-					$boundParams = $propertyBindings[$propertyName]['params'] ?? [];
+	/**
+	 * Validate a single execute() call for a property
+	 *
+	 * @param array{line: int, params: array<string>|null} $execute
+	 * @param array<string> $placeholders
+	 * @param array<string, array{params: array<string>, locations: array<string, int>}> $propertyBindings
+	 * @return array<\PHPStan\Rules\RuleError>
+	 */
+	private function validatePropertyExecuteCall(
+		array $execute,
+		array $placeholders,
+		string $propertyName,
+		array $propertyBindings,
+	): array {
+		$executeLine = $execute['line'];
+		$executeParams = $execute['params'];
 
-					// Check for missing bindings
-					$missing = array_diff($placeholders, $boundParams);
-					// Check for extra bindings
-					$extra = array_diff($boundParams, $placeholders);
+		if ($executeParams !== null) {
+			return $this->validateExecuteWithArray(
+				$placeholders,
+				$executeParams,
+				$executeLine,
+			);
+		}
 
-					foreach ($missing as $param) {
-						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Missing bindValue/bindParam for :%s',
-							$param,
-						))
-							->line($executeLine)
-							->identifier('pdoSql.missingBinding')
-							->build();
-					}
+		return $this->validateExecuteWithBindings(
+			$placeholders,
+			$propertyName,
+			$propertyBindings,
+			$executeLine,
+		);
+	}
 
-					// For extra bindings, report at the binding location
-					if (isset($propertyBindings[$propertyName]['locations'])) {
-						foreach ($extra as $param) {
-							$bindingLine =
-								$propertyBindings[$propertyName]['locations'][$param] ?? $executeLine;
-							$errors[] = RuleErrorBuilder::message(sprintf(
-								'Parameter :%s is bound but not used',
-								$param,
-							))
-								->line($bindingLine)
-								->identifier('pdoSql.extraBinding')
-								->build();
-						}
-					}
-				}
+	/**
+	 * Validate execute() call with array parameters
+	 *
+	 * @param array<string> $placeholders
+	 * @param array<string> $executeParams
+	 * @return array<\PHPStan\Rules\RuleError>
+	 */
+	private function validateExecuteWithArray(
+		array $placeholders,
+		array $executeParams,
+		int $executeLine,
+	): array {
+		$errors = [];
+		$missing = array_diff($placeholders, $executeParams);
+		$extra = array_diff($executeParams, $placeholders);
+
+		foreach ($missing as $param) {
+			$errors[] = RuleErrorBuilder::message(sprintf(
+				'Missing parameter :%s in execute()',
+				$param,
+			))
+				->line($executeLine)
+				->identifier('pdoSql.missingParameter')
+				->build();
+		}
+
+		foreach ($extra as $param) {
+			$errors[] = RuleErrorBuilder::message(sprintf(
+				'Parameter :%s in execute() is not used',
+				$param,
+			))
+				->line($executeLine)
+				->identifier('pdoSql.extraParameter')
+				->build();
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Validate execute() call with bindValue/bindParam
+	 *
+	 * @param array<string> $placeholders
+	 * @param array<string, array{params: array<string>, locations: array<string, int>}> $propertyBindings
+	 * @return array<\PHPStan\Rules\RuleError>
+	 */
+	private function validateExecuteWithBindings(
+		array $placeholders,
+		string $propertyName,
+		array $propertyBindings,
+		int $executeLine,
+	): array {
+		$errors = [];
+		$boundParams = $propertyBindings[$propertyName]['params'] ?? [];
+
+		$missing = array_diff($placeholders, $boundParams);
+		$extra = array_diff($boundParams, $placeholders);
+
+		foreach ($missing as $param) {
+			$errors[] = RuleErrorBuilder::message(sprintf(
+				'Missing bindValue/bindParam for :%s',
+				$param,
+			))
+				->line($executeLine)
+				->identifier('pdoSql.missingBinding')
+				->build();
+		}
+
+		if (isset($propertyBindings[$propertyName]['locations'])) {
+			foreach ($extra as $param) {
+				$bindingLine =
+					$propertyBindings[$propertyName]['locations'][$param] ?? $executeLine;
+				$errors[] = RuleErrorBuilder::message(sprintf(
+					'Parameter :%s is bound but not used',
+					$param,
+				))
+					->line($bindingLine)
+					->identifier('pdoSql.extraBinding')
+					->build();
 			}
 		}
 
@@ -186,84 +283,142 @@ class ValidatePdoParameterBindingsRule implements Rule
 	private function validateMethodLocalVariables(ClassMethod $classMethod): array
 	{
 		$errors = [];
-
-		// Extract all prepare() statements for local variables
 		$preparations = $this->extractLocalVariablePreparations($classMethod);
 
 		foreach ($preparations as $preparation) {
-			$varName = $preparation['var'];
-			$placeholders = $preparation['placeholders'];
-			$prepareLine = $preparation['line'];
-
-			// Find execute() calls for this variable
-			$executeCalls = $this->extractLocalVariableExecuteCalls(
+			$prepErrors = $this->validateSingleLocalVariablePreparation(
+				$preparation,
 				$classMethod,
-				$varName,
 			);
+			$errors = array_merge($errors, $prepErrors);
+		}
 
-			// Extract bindValue/bindParam calls
-			$boundParams = $this->extractLocalVariableBindings($classMethod, $varName);
+		return $errors;
+	}
 
-			// If no execute calls found, skip validation
-			if ($executeCalls === []) {
-				continue;
-			}
+	/**
+	 * Validate a single local variable preparation
+	 *
+	 * @param array{var: string, sql: string, line: int, placeholders: array<string>} $preparation
+	 * @return array<\PHPStan\Rules\RuleError>
+	 */
+	private function validateSingleLocalVariablePreparation(
+		array $preparation,
+		ClassMethod $classMethod,
+	): array {
+		$varName = $preparation['var'];
+		$placeholders = $preparation['placeholders'];
 
-			// Validate each execute() call
-			foreach ($executeCalls as $executeCall) {
-				$executeLine = $executeCall['line'];
-				$executeParams = $executeCall['params'];
+		$executeCalls = $this->extractLocalVariableExecuteCalls(
+			$classMethod,
+			$varName,
+		);
 
-				// If execute() is called with an array, validate only those parameters
-				if ($executeParams !== null) {
-					$missing = array_diff($placeholders, $executeParams);
-					$extra = array_diff($executeParams, $placeholders);
+		if ($executeCalls === []) {
+			return [];
+		}
 
-					foreach ($missing as $param) {
-						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Missing parameter :%s in execute()',
-							$param,
-						))
-							->line($executeLine)
-							->identifier('pdoSql.missingParameter')
-							->build();
-					}
+		$boundParams = $this->extractLocalVariableBindings($classMethod, $varName);
 
-					foreach ($extra as $param) {
-						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Parameter :%s in execute() is not used',
-							$param,
-						))
-							->line($executeLine)
-							->identifier('pdoSql.extraParameter')
-							->build();
-					}
-				} else {
-					// execute() called without array, validate using bindValue/bindParam
-					$missing = array_diff($placeholders, $boundParams);
-					$extra = array_diff($boundParams, $placeholders);
+		return $this->validateAllLocalVariableExecuteCalls(
+			$executeCalls,
+			$placeholders,
+			$boundParams,
+		);
+	}
 
-					foreach ($missing as $param) {
-						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Missing bindValue/bindParam for :%s',
-							$param,
-						))
-							->line($executeLine)
-							->identifier('pdoSql.missingBinding')
-							->build();
-					}
+	/**
+	 * Validate all execute() calls for a local variable
+	 *
+	 * @param array<array{line: int, params: array<string>|null}> $executeCalls
+	 * @param array<string> $placeholders
+	 * @param array<string> $boundParams
+	 * @return array<\PHPStan\Rules\RuleError>
+	 */
+	private function validateAllLocalVariableExecuteCalls(
+		array $executeCalls,
+		array $placeholders,
+		array $boundParams,
+	): array {
+		$errors = [];
 
-					foreach ($extra as $param) {
-						$errors[] = RuleErrorBuilder::message(sprintf(
-							'Parameter :%s is bound but not used',
-							$param,
-						))
-							->line($executeLine)
-							->identifier('pdoSql.extraBinding')
-							->build();
-					}
-				}
-			}
+		foreach ($executeCalls as $executeCall) {
+			$executeErrors = $this->validateLocalVariableExecuteCall(
+				$executeCall,
+				$placeholders,
+				$boundParams,
+			);
+			$errors = array_merge($errors, $executeErrors);
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Validate a single execute() call for a local variable
+	 *
+	 * @param array{line: int, params: array<string>|null} $executeCall
+	 * @param array<string> $placeholders
+	 * @param array<string> $boundParams
+	 * @return array<\PHPStan\Rules\RuleError>
+	 */
+	private function validateLocalVariableExecuteCall(
+		array $executeCall,
+		array $placeholders,
+		array $boundParams,
+	): array {
+		$executeLine = $executeCall['line'];
+		$executeParams = $executeCall['params'];
+
+		if ($executeParams !== null) {
+			return $this->validateExecuteWithArray(
+				$placeholders,
+				$executeParams,
+				$executeLine,
+			);
+		}
+
+		return $this->validateLocalExecuteWithBindings(
+			$placeholders,
+			$boundParams,
+			$executeLine,
+		);
+	}
+
+	/**
+	 * Validate execute() for local variable with bindValue/bindParam
+	 *
+	 * @param array<string> $placeholders
+	 * @param array<string> $boundParams
+	 * @return array<\PHPStan\Rules\RuleError>
+	 */
+	private function validateLocalExecuteWithBindings(
+		array $placeholders,
+		array $boundParams,
+		int $executeLine,
+	): array {
+		$errors = [];
+		$missing = array_diff($placeholders, $boundParams);
+		$extra = array_diff($boundParams, $placeholders);
+
+		foreach ($missing as $param) {
+			$errors[] = RuleErrorBuilder::message(sprintf(
+				'Missing bindValue/bindParam for :%s',
+				$param,
+			))
+				->line($executeLine)
+				->identifier('pdoSql.missingBinding')
+				->build();
+		}
+
+		foreach ($extra as $param) {
+			$errors[] = RuleErrorBuilder::message(sprintf(
+				'Parameter :%s is bound but not used',
+				$param,
+			))
+				->line($executeLine)
+				->identifier('pdoSql.extraBinding')
+				->build();
 		}
 
 		return $errors;
@@ -414,39 +569,90 @@ class ValidatePdoParameterBindingsRule implements Rule
 	{
 		$results = [];
 
-		// If this node is a bindValue/bindParam call on a property, add it
-		if (
-			$node instanceof MethodCall && (
-				$node->name instanceof Node\Identifier
-				&& in_array($node->name->toString(), ['bindValue', 'bindParam'])
-				&& $node->var instanceof PropertyFetch
-			)
-		) {
-			$propertyFetch = $node->var;
-			if (
-				$propertyFetch->var instanceof Variable
-				&& $propertyFetch->var->name === 'this'
-				&& $propertyFetch->name instanceof Node\Identifier
-			) {
-				$propertyName = '$this->' . $propertyFetch->name->toString();
-
-				// Extract parameter name
-				if ($node->getArgs() !== []) {
-					$firstArg = $node->getArgs()[0]->value;
-					if ($firstArg instanceof String_) {
-						$paramName = ltrim($firstArg->value, ':');
-
-						$results[] = [
-							'property' => $propertyName,
-							'param' => $paramName,
-							'line' => $node->getStartLine(),
-						];
-					}
-				}
-			}
+		$bindCall = $this->extractBindCallIfPresent($node);
+		if ($bindCall !== null) {
+			$results[] = $bindCall;
 		}
 
-		// Recursively search child nodes
+		$childResults = $this->findBindCallsInChildNodes($node);
+		return array_merge($results, $childResults);
+	}
+
+	/**
+	 * Extract bind call information if node is a bindValue/bindParam call
+	 *
+	 * @return array{property: string, param: string, line: int}|null
+	 */
+	private function extractBindCallIfPresent(Node $node): null|array
+	{
+		if (!$this->isBindMethodCall($node)) {
+			return null;
+		}
+
+		/** @var MethodCall $node */
+		$propertyFetch = $node->var;
+		if (!$this->isThisPropertyFetch($propertyFetch)) {
+			return null;
+		}
+
+		/** @var PropertyFetch $propertyFetch */
+		/** @var Node\Identifier $name */
+		$name = $propertyFetch->name;
+		$propertyName = '$this->' . $name->toString();
+
+		if ($node->getArgs() === []) {
+			return null;
+		}
+
+		$firstArg = $node->getArgs()[0]->value;
+		if (!$firstArg instanceof String_) {
+			return null;
+		}
+
+		$paramName = ltrim($firstArg->value, ':');
+
+		return [
+			'property' => $propertyName,
+			'param' => $paramName,
+			'line' => $node->getStartLine(),
+		];
+	}
+
+	/**
+	 * Check if node is a bindValue/bindParam method call on a property
+	 */
+	private function isBindMethodCall(Node $node): bool
+	{
+		return (
+			$node instanceof MethodCall
+			&& $node->name instanceof Node\Identifier
+			&& in_array($node->name->toString(), ['bindValue', 'bindParam'])
+			&& $node->var instanceof PropertyFetch
+		);
+	}
+
+	/**
+	 * Check if property fetch is $this->property
+	 */
+	private function isThisPropertyFetch(Node\Expr $expr): bool
+	{
+		return (
+			$expr instanceof PropertyFetch
+			&& $expr->var instanceof Variable
+			&& $expr->var->name === 'this'
+			&& $expr->name instanceof Node\Identifier
+		);
+	}
+
+	/**
+	 * Find bind calls in all child nodes
+	 *
+	 * @return array<array{property: string, param: string, line: int}>
+	 */
+	private function findBindCallsInChildNodes(Node $node): array
+	{
+		$results = [];
+
 		foreach ($node->getSubNodeNames() as $subNodeName) {
 			$subNode = $node->{$subNodeName};
 
@@ -504,49 +710,98 @@ class ValidatePdoParameterBindingsRule implements Rule
 	{
 		$results = [];
 
-		// If this node is an execute() call on a property, add it
-		if (
-			$node instanceof MethodCall && (
-				$node->name instanceof Node\Identifier
-				&& $node->name->toString() === 'execute'
-				&& $node->var instanceof PropertyFetch
-			)
-		) {
-			$propertyFetch = $node->var;
-			if (
-				$propertyFetch->var instanceof Variable
-				&& $propertyFetch->var->name === 'this'
-				&& $propertyFetch->name instanceof Node\Identifier
-			) {
-				$propertyName = '$this->' . $propertyFetch->name->toString();
+		$executeCall = $this->extractExecuteCallIfPresent($node);
+		if ($executeCall !== null) {
+			$results[] = $executeCall;
+		}
 
-				// Extract parameters if execute() is called with an array
-				$params = null;
-				if ($node->getArgs() !== []) {
-					$firstArg = $node->getArgs()[0]->value;
-					if ($firstArg instanceof Node\Expr\Array_) {
-						$params = [];
-						foreach ($firstArg->items as $item) {
-							if (!$item instanceof Node\Expr\ArrayItem) {
-								continue;
-							}
+		$childResults = $this->findExecuteCallsInChildNodes($node);
+		return array_merge($results, $childResults);
+	}
 
-							if ($item->key instanceof String_) {
-								$params[] = ltrim($item->key->value, ':');
-							}
-						}
-					}
-				}
+	/**
+	 * Extract execute call information if node is an execute() call
+	 *
+	 * @return array{property: string, line: int, params: array<string>|null}|null
+	 */
+	private function extractExecuteCallIfPresent(Node $node): null|array
+	{
+		if (!$this->isExecuteMethodCall($node)) {
+			return null;
+		}
 
-				$results[] = [
-					'property' => $propertyName,
-					'line' => $node->getStartLine(),
-					'params' => $params,
-				];
+		/** @var MethodCall $node */
+		$propertyFetch = $node->var;
+		if (!$this->isThisPropertyFetch($propertyFetch)) {
+			return null;
+		}
+
+		/** @var PropertyFetch $propertyFetch */
+		/** @var Node\Identifier $name */
+		$name = $propertyFetch->name;
+		$propertyName = '$this->' . $name->toString();
+
+		$params = $this->extractExecuteArrayParams($node);
+
+		return [
+			'property' => $propertyName,
+			'line' => $node->getStartLine(),
+			'params' => $params,
+		];
+	}
+
+	/**
+	 * Check if node is an execute() method call on a property
+	 */
+	private function isExecuteMethodCall(Node $node): bool
+	{
+		return (
+			$node instanceof MethodCall
+			&& $node->name instanceof Node\Identifier
+			&& $node->name->toString() === 'execute'
+			&& $node->var instanceof PropertyFetch
+		);
+	}
+
+	/**
+	 * Extract parameters from execute() array argument
+	 *
+	 * @return array<string>|null
+	 */
+	private function extractExecuteArrayParams(MethodCall $methodCall): null|array
+	{
+		if ($methodCall->getArgs() === []) {
+			return null;
+		}
+
+		$firstArg = $methodCall->getArgs()[0]->value;
+		if (!$firstArg instanceof Node\Expr\Array_) {
+			return null;
+		}
+
+		$params = [];
+		foreach ($firstArg->items as $item) {
+			if (!$item instanceof Node\Expr\ArrayItem) {
+				continue;
+			}
+
+			if ($item->key instanceof String_) {
+				$params[] = ltrim($item->key->value, ':');
 			}
 		}
 
-		// Recursively search child nodes
+		return $params;
+	}
+
+	/**
+	 * Find execute calls in all child nodes
+	 *
+	 * @return array<array{property: string, line: int, params: array<string>|null}>
+	 */
+	private function findExecuteCallsInChildNodes(Node $node): array
+	{
+		$results = [];
+
 		foreach ($node->getSubNodeNames() as $subNodeName) {
 			$subNode = $node->{$subNodeName};
 

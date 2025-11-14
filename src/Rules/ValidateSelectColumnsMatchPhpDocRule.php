@@ -45,69 +45,126 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 	public function processNode(Node $node, Scope $scope): array
 	{
-		$errors = [];
-
-		// Skip migration files
-		$filePath = $scope->getFile();
-		if (str_contains($filePath, '/migrations/')) {
+		if ($this->shouldSkipFile($scope->getFile())) {
 			return [];
 		}
 
-		// Extract @phpstan-type definitions from class PHPDoc
 		$typeAliases = $this->extractTypeAliases($node);
-
-		// Extract property preparations from constructor and methods
 		$propertyPreparations = $this->extractPropertyPreparations($node);
 
-		// Check each method for @var annotations
-		// Note: We only validate @var annotations, not @return annotations
-		// because @var describes what was EXTRACTED from the database,
-		// while @return describes what the method returns (which may be different)
+		return $this->validateAllMethods($node, $propertyPreparations, $typeAliases);
+	}
+
+	/**
+	 * Check if file should be skipped (e.g., migration files)
+	 */
+	private function shouldSkipFile(string $filePath): bool
+	{
+		return str_contains($filePath, '/migrations/');
+	}
+
+	/**
+	 * Validate @var annotations in all class methods
+	 *
+	 * @param array<string, array{sql: string, line: int, var?: string}> $propertyPreparations
+	 * @param array<string, array<string, string>> $typeAliases
+	 * @return array<\PHPStan\Rules\RuleError>
+	 */
+	private function validateAllMethods(
+		Class_ $class,
+		array $propertyPreparations,
+		array $typeAliases,
+	): array {
+		$errors = [];
 		$seen = [];
-		foreach ($node->getMethods() as $classMethod) {
-			// Validate @var annotations within method body
+
+		foreach ($class->getMethods() as $classMethod) {
 			$varAnnotations = $this->extractVarAnnotations(
 				$classMethod,
 				$propertyPreparations,
 				$typeAliases,
 			);
-			foreach ($varAnnotations as $varAnnotation) {
-				// Create a unique key to avoid duplicate validations
-				$key =
-					$varAnnotation['var_line']
-					. ':'
-					. $varAnnotation['sql_line']
-					. ':'
-					. json_encode($varAnnotation['object_shape']);
-				if (!isset($seen[$key])) {
-					$seen[$key] = true;
 
-					// First, validate that the fetch method matches the PHPDoc type structure
-					if (isset($varAnnotation['fetch_method'])) {
-						$fetchMethodError = $this->validateFetchMethodMatchesPhpDocType(
-							$varAnnotation['fetch_method'],
-							$varAnnotation['is_array_type'] ?? false,
-							$varAnnotation['sql_line'],
-							$varAnnotation['var_line'],
-						);
-						if ($fetchMethodError instanceof \PHPStan\Rules\RuleError) {
-							$errors[] = $fetchMethodError;
-							continue; // Skip column validation if type structure is wrong
-						}
-					}
-
-					// Then validate columns
-					$errors = array_merge($errors, $this->validateSqlAgainstPhpDoc(
-						$varAnnotation['sql'],
-						$varAnnotation['sql_line'],
-						$varAnnotation['object_shape'],
-						$varAnnotation['var_line'],
-					));
-				}
-			}
+			$methodErrors = $this->processVarAnnotations($varAnnotations, $seen);
+			$errors = array_merge($errors, $methodErrors);
 		}
 
 		return $errors;
+	}
+
+	/**
+	 * Process var annotations and validate them
+	 *
+	 * @param array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool}> $varAnnotations
+	 * @param array<string, bool> &$seen
+	 * @return array<\PHPStan\Rules\RuleError>
+	 */
+	private function processVarAnnotations(
+		array $varAnnotations,
+		array &$seen,
+	): array {
+		$errors = [];
+
+		foreach ($varAnnotations as $varAnnotation) {
+			$key = $this->getAnnotationKey($varAnnotation);
+
+			if (isset($seen[$key])) {
+				continue; // Skip duplicates
+			}
+
+			$seen[$key] = true;
+
+			// Validate fetch method matches PHPDoc type structure
+			$fetchMethodError = $this->validateFetchMethod($varAnnotation);
+			if ($fetchMethodError instanceof \PHPStan\Rules\RuleError) {
+				$errors[] = $fetchMethodError;
+				continue; // Skip column validation if type structure is wrong
+			}
+
+			// Validate columns
+			$columnErrors = $this->validateSqlAgainstPhpDoc(
+				$varAnnotation['sql'],
+				$varAnnotation['sql_line'],
+				$varAnnotation['object_shape'],
+				$varAnnotation['var_line'],
+			);
+			$errors = array_merge($errors, $columnErrors);
+		}
+
+		return $errors;
+	}
+
+	/**
+	 * Generate unique key for annotation to avoid duplicates
+	 *
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool} $varAnnotation
+	 */
+	private function getAnnotationKey(array $varAnnotation): string
+	{
+		return $varAnnotation['var_line']
+		. ':'
+		. $varAnnotation['sql_line']
+		. ':'
+		. json_encode($varAnnotation['object_shape']);
+	}
+
+	/**
+	 * Validate fetch method if present
+	 *
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool} $varAnnotation
+	 */
+	private function validateFetchMethod(array $varAnnotation): null|\PHPStan\Rules\RuleError
+	{
+		if (!isset($varAnnotation['fetch_method'])) {
+			return null;
+		}
+
+		return $this->validateFetchMethodMatchesPhpDocType(
+			$varAnnotation['fetch_method'],
+			$varAnnotation['is_array_type'] ?? false,
+			$varAnnotation['sql_line'],
+			$varAnnotation['var_line'],
+		);
 	}
 
 	/**
@@ -155,79 +212,140 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 */
 	private function extractTypeAliases(Class_ $class): array
 	{
-		$aliases = [];
-
 		$docComment = $class->getDocComment();
 		if ($docComment === null) {
 			return [];
 		}
 
 		$docText = $docComment->getText();
+
+		// Try single-line format first
+		$aliases = $this->extractSingleLineTypeAliases($docText);
+
+		// Then handle multiline format
+		$multilineAliases = $this->extractMultilineTypeAliases($docText);
+
+		return array_merge($aliases, $multilineAliases);
+	}
+
+	/**
+	 * Extract type aliases from single-line format
+	 *
+	 * @return array<string, array<string, string>>
+	 */
+	private function extractSingleLineTypeAliases(string $docText): array
+	{
+		$aliases = [];
 		$lines = explode("\n", $docText);
 
 		foreach ($lines as $line) {
-			// Match @phpstan-type AliasName object{prop1: type1, prop2: type2}
-			$matchCount = preg_match(
-				'/@phpstan-type\s+(\w+)\s+object\s*\{([^}]+)\}/s',
-				$line,
-				$matches,
-			);
-			if ($matchCount !== false && $matchCount > 0) {
-				$aliasName = $matches[1];
-				$shapeContent = $matches[2];
-
-				$properties = [];
-				$parts = explode(',', $shapeContent);
-
-				foreach ($parts as $part) {
-					$part = trim($part);
-					$propMatchCount = preg_match('/^(\w+)\s*:\s*(.+)$/', $part, $propMatch);
-					if ($propMatchCount !== false && $propMatchCount > 0) {
-						$properties[$propMatch[1]] = trim($propMatch[2]);
-					}
-				}
-
-				if ($properties !== []) {
-					$aliases[$aliasName] = $properties;
-				}
+			$match = $this->matchTypeAliasPattern($line);
+			if ($match !== null) {
+				[$aliasName, $properties] = $match;
+				$aliases[$aliasName] = $properties;
 			}
 		}
 
-		// Handle multiline @phpstan-type definitions
-		$cleanedDocText = preg_replace('/\s*\*\s*/m', ' ', $docText); // Remove * from doc comments
+		return $aliases;
+	}
+
+	/**
+	 * Extract type aliases from multiline format
+	 *
+	 * @return array<string, array<string, string>>
+	 */
+	private function extractMultilineTypeAliases(string $docText): array
+	{
+		$aliases = [];
+
+		// Remove * from doc comments for multiline parsing
+		$cleanedDocText = preg_replace('/\s*\*\s*/m', ' ', $docText);
 		if (!is_string($cleanedDocText)) {
-			return $aliases;
+			return [];
 		}
 
-		$multilineMatchCount = preg_match_all(
+		$matchCount = preg_match_all(
 			'/@phpstan-type\s+(\w+)\s+object\s*\{([^}]+)\}/s',
 			$cleanedDocText,
 			$matches,
 			PREG_SET_ORDER,
 		);
-		if ($multilineMatchCount !== false && $multilineMatchCount > 0) {
-			foreach ($matches as $match) {
-				$aliasName = $match[1];
-				$shapeContent = $match[2];
 
-				$properties = [];
-				$parts = explode(',', $shapeContent);
+		if ($matchCount === false || $matchCount === 0) {
+			return [];
+		}
 
-				foreach ($parts as $part) {
-					$part = trim($part);
-					$propMatchCount2 = preg_match('/^(\w+)\s*:\s*(.+)$/', $part, $propMatch);
-					if ($propMatchCount2 !== false && $propMatchCount2 > 0) {
-						$properties[$propMatch[1]] = trim($propMatch[2]);
-					}
-				}
-
-				if ($properties !== []) {
-					$aliases[$aliasName] = $properties;
-				}
+		foreach ($matches as $match) {
+			$parsed = $this->parseTypeAliasMatch($match);
+			if ($parsed !== null) {
+				[$aliasName, $properties] = $parsed;
+				$aliases[$aliasName] = $properties;
 			}
 		}
 
 		return $aliases;
+	}
+
+	/**
+	 * Match and parse type alias pattern
+	 *
+	 * @return array{string, array<string, string>}|null [aliasName, properties]
+	 */
+	private function matchTypeAliasPattern(string $text): null|array
+	{
+		$matchCount = preg_match(
+			'/@phpstan-type\s+(\w+)\s+object\s*\{([^}]+)\}/s',
+			$text,
+			$matches,
+		);
+
+		if ($matchCount === false || $matchCount === 0) {
+			return null;
+		}
+
+		return $this->parseTypeAliasMatch($matches);
+	}
+
+	/**
+	 * Parse matched type alias into name and properties
+	 *
+	 * @param array<int, string> $match
+	 * @return array{string, array<string, string>}|null [aliasName, properties]
+	 */
+	private function parseTypeAliasMatch(array $match): null|array
+	{
+		$aliasName = $match[1];
+		$shapeContent = $match[2];
+
+		$properties = $this->parseObjectShapeProperties($shapeContent);
+
+		if ($properties === []) {
+			return null;
+		}
+
+		return [$aliasName, $properties];
+	}
+
+	/**
+	 * Parse object shape properties from string
+	 *
+	 * @return array<string, string>
+	 */
+	private function parseObjectShapeProperties(string $shapeContent): array
+	{
+		$properties = [];
+		$parts = explode(',', $shapeContent);
+
+		foreach ($parts as $part) {
+			$part = trim($part);
+			$propMatchCount = preg_match('/^(\w+)\s*:\s*(.+)$/', $part, $propMatch);
+
+			if ($propMatchCount !== false && $propMatchCount > 0) {
+				$properties[$propMatch[1]] = trim($propMatch[2]);
+			}
+		}
+
+		return $properties;
 	}
 
 	/**

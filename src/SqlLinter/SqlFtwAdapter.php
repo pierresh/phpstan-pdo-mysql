@@ -25,71 +25,126 @@ class SqlFtwAdapter implements SqlLinterInterface
 			return [];
 		}
 
-		$errors = [];
-
 		try {
-			// Parse the SQL query using SQLFTW
-			$platform = Platform::get(Platform::MYSQL, '8.0');
-			$parserConfig = new ParserConfig($platform);
-			$session = new Session($platform);
-			$parser = new SqlFtwParser($parserConfig, $session);
-
-			// Temporarily replace PDO-style placeholders (:param) with valid literals
-			// to avoid syntax errors from the parser
-			$sanitizedSql = preg_replace(
-				'/:([a-zA-Z_]\w*)/',
-				"'__PLACEHOLDER__'",
-				$sqlQuery,
-			);
-
-			$commands = $parser->parse($sanitizedSql ?? $sqlQuery);
-
-			// Check each command for syntax errors
-			foreach ($commands as $command) {
-				if ($command instanceof InvalidCommand) {
-					$exception = $command->getException();
-					$errorMessage = $exception->getMessage();
-					$sqlLine = null;
-
-					// Try to extract the SQL line number from the error token
-					if (preg_match('/at position (\d+)/', $errorMessage, $matches)) {
-						$tokenIndex = (int) $matches[1];
-						// @phpstan-ignore-next-line - InvalidCommand always throws InvalidTokenException which has getTokenList()
-						$tokenList = $exception->getTokenList();
-						$tokens = $tokenList->getTokens();
-
-						if (isset($tokens[$tokenIndex])) {
-							$sqlLine = $tokens[$tokenIndex]->row;
-						} elseif (count($tokens) > 0) {
-							// If token index is out of bounds (e.g., "end of query"),
-							// use the last token's row
-							$lastToken = end($tokens);
-							$sqlLine = $lastToken->row;
-						}
-					}
-
-					// Clean up the error message - remove the SQL context for brevity
-					if (str_contains($errorMessage, ' at position ')) {
-						$errorMessage =
-							preg_replace('/ at position \d+ in:.*$/s', '.', $errorMessage)
-							?? $errorMessage;
-					}
-
-					$errors[] = [
-						'message' => $errorMessage,
-						'sqlLine' => $sqlLine,
-					];
-				}
-			}
+			$commands = $this->parseQuery($sqlQuery);
+			return $this->extractErrors($commands);
 		} catch (\Exception $exception) {
 			// If parsing completely fails, report the error
-			$errors[] = [
-				'message' => $exception->getMessage(),
-				'sqlLine' => null,
+			return [
+				[
+					'message' => $exception->getMessage(),
+					'sqlLine' => null,
+				],
 			];
+		}
+	}
+
+	/**
+	 * Parse SQL query using SQLFTW parser
+	 *
+	 * @return iterable<mixed>
+	 */
+	private function parseQuery(string $sqlQuery): iterable
+	{
+		$platform = Platform::get(Platform::MYSQL, '8.0');
+		$parserConfig = new ParserConfig($platform);
+		$session = new Session($platform);
+		$parser = new SqlFtwParser($parserConfig, $session);
+
+		// Temporarily replace PDO-style placeholders (:param) with valid literals
+		// to avoid syntax errors from the parser
+		$sanitizedSql = preg_replace(
+			'/:([a-zA-Z_]\w*)/',
+			"'__PLACEHOLDER__'",
+			$sqlQuery,
+		);
+
+		return $parser->parse($sanitizedSql ?? $sqlQuery);
+	}
+
+	/**
+	 * Extract errors from parsed commands
+	 *
+	 * @param iterable<mixed> $commands
+	 * @return array<array{message: string, sqlLine: int|null}>
+	 */
+	private function extractErrors(iterable $commands): array
+	{
+		$errors = [];
+
+		foreach ($commands as $command) {
+			if ($command instanceof InvalidCommand) {
+				$errors[] = $this->buildErrorFromInvalidCommand($command);
+			}
 		}
 
 		return $errors;
+	}
+
+	/**
+	 * Build error array from InvalidCommand
+	 *
+	 * @return array{message: string, sqlLine: int|null}
+	 */
+	private function buildErrorFromInvalidCommand(InvalidCommand $invalidCommand): array
+	{
+		$throwable = $invalidCommand->getException();
+		$errorMessage = $throwable->getMessage();
+		$sqlLine = $this->extractSqlLineNumber($throwable, $errorMessage);
+
+		return [
+			'message' => $this->cleanErrorMessage($errorMessage),
+			'sqlLine' => $sqlLine,
+		];
+	}
+
+	/**
+	 * Extract SQL line number from exception
+	 */
+	private function extractSqlLineNumber(
+		\Throwable $throwable,
+		string $errorMessage,
+	): null|int {
+		if (in_array(
+			preg_match('/at position (\d+)/', $errorMessage, $matches),
+			[0, false],
+			true,
+		)) {
+			return null;
+		}
+
+		$tokenIndex = (int) $matches[1];
+		// @phpstan-ignore-next-line - InvalidCommand always throws InvalidTokenException which has getTokenList()
+		$tokenList = $throwable->getTokenList();
+		$tokens = $tokenList->getTokens();
+
+		if (isset($tokens[$tokenIndex])) {
+			return $tokens[$tokenIndex]->row;
+		}
+
+		if (count($tokens) > 0) {
+			// If token index is out of bounds (e.g., "end of query"),
+			// use the last token's row
+			$lastToken = end($tokens);
+			return $lastToken->row;
+		}
+
+		return null;
+	}
+
+	/**
+	 * Clean up error message by removing SQL context
+	 */
+	private function cleanErrorMessage(string $errorMessage): string
+	{
+		if (!str_contains($errorMessage, ' at position ')) {
+			return $errorMessage;
+		}
+
+		return (
+			preg_replace('/ at position \d+ in:.*$/s', '.', $errorMessage)
+			?? $errorMessage
+		);
 	}
 
 	public function isAvailable(): bool

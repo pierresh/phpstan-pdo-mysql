@@ -74,29 +74,90 @@ class ValidatePdoSqlSyntaxRule implements Rule
 		Node $node,
 		array &$sqlVariables,
 	): void {
-		// Look for assignments: $var = "SQL string"
-		if ($node instanceof Node\Stmt\Expression && $node->expr instanceof Assign) {
-			$assign = $node->expr;
+		$this->processVariableAssignment($node, $sqlVariables);
+		$this->recurseIntoChildNodes($node, $sqlVariables);
+	}
 
-			// Early bailout: only process simple variable assignments
-			if (!($assign->var instanceof Variable && is_string($assign->var->name))) {
-				// Continue to recurse even if this isn't a variable assignment
-			} elseif ($assign->expr instanceof String_) {
-				// Only process if right side is a string
-				$sql = $assign->expr->value;
-
-				// Simple heuristic: if it contains SQL keywords, consider it SQL
-				if ($this->looksLikeSQL($sql)) {
-					$varName = $assign->var->name;
-					$sqlVariables[$varName] = [
-						'sql' => $sql,
-						'line' => $node->getStartLine(),
-					];
-				}
-			}
+	/**
+	 * Process variable assignment if it's an SQL string
+	 *
+	 * @param array<string, array{sql: string, line: int}> &$sqlVariables
+	 */
+	private function processVariableAssignment(
+		Node $node,
+		array &$sqlVariables,
+	): void {
+		if (!$this->isExpressionAssignment($node)) {
+			return;
 		}
 
-		// Recurse into child nodes
+		/** @var Node\Stmt\Expression $node */
+		/** @var Assign $assign */
+		$assign = $node->expr;
+		$sqlData = $this->extractSqlFromAssignment($assign, $node->getStartLine());
+
+		if ($sqlData !== null) {
+			[$varName, $sql, $line] = $sqlData;
+			$sqlVariables[$varName] = [
+				'sql' => $sql,
+				'line' => $line,
+			];
+		}
+	}
+
+	/**
+	 * Check if node is an expression with assignment
+	 */
+	private function isExpressionAssignment(Node $node): bool
+	{
+		return $node instanceof Node\Stmt\Expression && $node->expr instanceof Assign;
+	}
+
+	/**
+	 * Extract SQL from assignment if it's a valid SQL variable assignment
+	 *
+	 * @return array{string, string, int}|null [varName, sql, line]
+	 */
+	private function extractSqlFromAssignment(
+		Assign $assign,
+		int $line,
+	): null|array {
+		if (!$this->isSimpleVariableAssignment($assign)) {
+			return null;
+		}
+
+		if (!$assign->expr instanceof String_) {
+			return null;
+		}
+
+		$sql = $assign->expr->value;
+
+		if (!$this->looksLikeSQL($sql)) {
+			return null;
+		}
+
+		/** @var Variable $var */
+		$var = $assign->var;
+		/** @var string $varName */
+		$varName = $var->name;
+		return [$varName, $sql, $line];
+	}
+
+	/**
+	 * Check if assignment is to a simple variable
+	 */
+	private function isSimpleVariableAssignment(Assign $assign): bool
+	{
+		return $assign->var instanceof Variable && is_string($assign->var->name);
+	}
+
+	/**
+	 * Recurse into child nodes for SQL variable extraction
+	 *
+	 * @param array<string, array{sql: string, line: int}> &$sqlVariables
+	 */
+	private function recurseIntoChildNodes(Node $node, array &$sqlVariables): void
+	{
 		foreach ($node->getSubNodeNames() as $subNodeName) {
 			$subNode = $node->$subNodeName;
 
@@ -123,79 +184,174 @@ class ValidatePdoSqlSyntaxRule implements Rule
 		array $sqlVariables,
 		array &$errors,
 	): void {
-		// Check if this is a prepare() or query() call
-		if (
+		$this->processDirectMethodCall($node, $sqlVariables, $errors);
+		$this->processAssignmentMethodCall($node, $sqlVariables, $errors);
+		$this->recurseIntoChildNodesForValidation($node, $sqlVariables, $errors);
+	}
+
+	/**
+	 * Process direct prepare() or query() method calls
+	 *
+	 * @param array<string, array{sql: string, line: int}> $sqlVariables
+	 * @param array<\PHPStan\Rules\RuleError> &$errors
+	 */
+	private function processDirectMethodCall(
+		Node $node,
+		array $sqlVariables,
+		array &$errors,
+	): void {
+		if (!$this->isDirectMethodCallExpression($node)) {
+			return;
+		}
+
+		/** @var Node\Stmt\Expression $node */
+		/** @var MethodCall $methodCall */
+		$methodCall = $node->expr;
+
+		if (!$methodCall->name instanceof Node\Identifier) {
+			return;
+		}
+
+		$methodName = $methodCall->name->toString();
+
+		if (!$this->isPrepareOrQueryCall($methodName, $methodCall)) {
+			return;
+		}
+
+		$this->validateMethodCallArgument(
+			$methodCall->getArgs()[0]->value,
+			$node->getStartLine(),
+			$methodName,
+			$sqlVariables,
+			$errors,
+		);
+	}
+
+	/**
+	 * Check if node is a direct method call expression
+	 */
+	private function isDirectMethodCallExpression(Node $node): bool
+	{
+		return (
 			$node instanceof Node\Stmt\Expression
 			&& $node->expr instanceof MethodCall
-		) {
-			$methodCall = $node->expr;
+		);
+	}
 
-			if ($methodCall->name instanceof Node\Identifier) {
-				$methodName = $methodCall->name->toString();
+	/**
+	 * Check if method call is prepare() or query()
+	 */
+	private function isPrepareOrQueryCall(
+		string $methodName,
+		MethodCall $methodCall,
+	): bool {
+		return (
+			($methodName === 'prepare' || $methodName === 'query')
+			&& $methodCall->getArgs() !== []
+		);
+	}
 
-				if (
-					($methodName === 'prepare' || $methodName === 'query')
-					&& $methodCall->getArgs() !== []
-				) {
-					$firstArg = $methodCall->getArgs()[0]->value;
-					// Case 1: Direct string literal
-					if ($firstArg instanceof String_) {
-						$errors = array_merge($errors, $this->validateSqlQuery(
-							$firstArg->value,
-							$node->getStartLine(),
-							$methodName,
-						));
-					} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
-						$varName = $firstArg->name;
-						if (isset($sqlVariables[$varName])) {
-							$errors = array_merge($errors, $this->validateSqlQuery(
-								$sqlVariables[$varName]['sql'],
-								$node->getStartLine(),
-								$methodName,
-							));
-						}
-					}
-				}
-			}
+	/**
+	 * Validate the SQL argument from a method call
+	 *
+	 * @param array<string, array{sql: string, line: int}> $sqlVariables
+	 * @param array<\PHPStan\Rules\RuleError> &$errors
+	 */
+	private function validateMethodCallArgument(
+		Node\Expr $expr,
+		int $line,
+		string $methodName,
+		array $sqlVariables,
+		array &$errors,
+	): void {
+		// Case 1: Direct string literal
+		if ($expr instanceof String_) {
+			$errors = array_merge($errors, $this->validateSqlQuery(
+				$expr->value,
+				$line,
+				$methodName,
+			));
+			return;
 		}
 
-		// Also check assignments: $var = $db->prepare(...)
-		if ($node instanceof Node\Stmt\Expression && $node->expr instanceof Assign) {
-			$assign = $node->expr;
-			if ($assign->expr instanceof MethodCall) {
-				$methodCall = $assign->expr;
-
-				if ($methodCall->name instanceof Node\Identifier) {
-					$methodName = $methodCall->name->toString();
-
-					if (
-						($methodName === 'prepare' || $methodName === 'query')
-						&& $methodCall->getArgs() !== []
-					) {
-						$firstArg = $methodCall->getArgs()[0]->value;
-						// Case 1: Direct string literal
-						if ($firstArg instanceof String_) {
-							$errors = array_merge($errors, $this->validateSqlQuery(
-								$firstArg->value,
-								$node->getStartLine(),
-								$methodName,
-							));
-						} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
-							$varName = $firstArg->name;
-							if (isset($sqlVariables[$varName])) {
-								$errors = array_merge($errors, $this->validateSqlQuery(
-									$sqlVariables[$varName]['sql'],
-									$node->getStartLine(),
-									$methodName,
-								));
-							}
-						}
-					}
-				}
-			}
+		// Case 2: Variable reference
+		if (!($expr instanceof Variable && is_string($expr->name))) {
+			return;
 		}
 
-		// Recurse into child nodes
+		$varName = $expr->name;
+		if (isset($sqlVariables[$varName])) {
+			$errors = array_merge($errors, $this->validateSqlQuery(
+				$sqlVariables[$varName]['sql'],
+				$line,
+				$methodName,
+			));
+		}
+	}
+
+	/**
+	 * Process assignment with prepare() or query() method calls
+	 *
+	 * @param array<string, array{sql: string, line: int}> $sqlVariables
+	 * @param array<\PHPStan\Rules\RuleError> &$errors
+	 */
+	private function processAssignmentMethodCall(
+		Node $node,
+		array $sqlVariables,
+		array &$errors,
+	): void {
+		if (!$this->isAssignmentWithMethodCall($node)) {
+			return;
+		}
+
+		/** @var Node\Stmt\Expression $node */
+		/** @var Assign $assign */
+		$assign = $node->expr;
+		/** @var MethodCall $methodCall */
+		$methodCall = $assign->expr;
+
+		if (!$methodCall->name instanceof Node\Identifier) {
+			return;
+		}
+
+		$methodName = $methodCall->name->toString();
+
+		if (!$this->isPrepareOrQueryCall($methodName, $methodCall)) {
+			return;
+		}
+
+		$this->validateMethodCallArgument(
+			$methodCall->getArgs()[0]->value,
+			$node->getStartLine(),
+			$methodName,
+			$sqlVariables,
+			$errors,
+		);
+	}
+
+	/**
+	 * Check if node is an assignment with method call
+	 */
+	private function isAssignmentWithMethodCall(Node $node): bool
+	{
+		return (
+			$node instanceof Node\Stmt\Expression
+			&& $node->expr instanceof Assign
+			&& $node->expr->expr instanceof MethodCall
+		);
+	}
+
+	/**
+	 * Recurse into child nodes for prepare/query validation
+	 *
+	 * @param array<string, array{sql: string, line: int}> $sqlVariables
+	 * @param array<\PHPStan\Rules\RuleError> &$errors
+	 */
+	private function recurseIntoChildNodesForValidation(
+		Node $node,
+		array $sqlVariables,
+		array &$errors,
+	): void {
 		foreach ($node->getSubNodeNames() as $subNodeName) {
 			$subNode = $node->$subNodeName;
 

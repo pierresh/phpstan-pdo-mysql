@@ -443,10 +443,11 @@ class DetectSelfReferenceConditionsRule implements Rule
 
 		if ($leftFullName === $rightFullName) {
 			// Track occurrence of this specific pattern
-			$pattern = "$leftFullName = $rightFullName";
+			$pattern = sprintf('%s = %s', $leftFullName, $rightFullName);
 			if (!isset($this->patternOccurrences[$pattern])) {
 				$this->patternOccurrences[$pattern] = 0;
 			}
+
 			$occurrenceIndex = $this->patternOccurrences[$pattern];
 			$this->patternOccurrences[$pattern]++;
 
@@ -455,7 +456,6 @@ class DetectSelfReferenceConditionsRule implements Rule
 				$rootNode,
 				$baseLine,
 				$originalSql,
-				$context,
 				$occurrenceIndex,
 			);
 
@@ -486,11 +486,10 @@ class DetectSelfReferenceConditionsRule implements Rule
 		QualifiedName $qualifiedName,
 		int $baseLine,
 		string $originalSql,
-		string $context,
 		int $occurrenceIndex,
 	): int {
 		$fullName = $qualifiedName->getFullName();
-		$pattern = "$fullName = $fullName"; // Pattern key for cache
+		$pattern = sprintf('%s = %s', $fullName, $fullName); // Pattern key for cache
 
 		// Check cache first
 		if (isset($this->patternLineCache[$pattern][$occurrenceIndex])) {
