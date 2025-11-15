@@ -115,6 +115,10 @@ class ValidateSelectColumnsMatchPhpDocRuleTest extends RuleTestCase
 				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 337)',
 				344,
 			],
+			[
+				'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 353) has "nam" - possible typo?',
+				357,
+			],
 		]);
 	}
 

@@ -217,8 +217,9 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * 1. The PHPDoc includes |false union type
 	 * 2. The code checks rowCount() before fetch
 	 * 3. The code checks === false, !== false, or !$var after fetch
+	 * 4. The @var is inside a while loop (false stops execution automatically)
 	 *
-	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool, doc_text?: string, method?: ClassMethod} $varAnnotation
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool, doc_text?: string, method?: ClassMethod, in_while_loop?: bool} $varAnnotation
 	 */
 	private function validateFalseHandling(array $varAnnotation): null|\PHPStan\Rules\RuleError
 	{
@@ -229,6 +230,15 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		$fetchMethod = $varAnnotation['fetch_method'];
 		if ($fetchMethod !== 'fetch' && $fetchMethod !== 'fetchObject') {
+			return null;
+		}
+
+		// Skip validation if @var is inside a while loop condition
+		// In while loops, if fetch() returns false, the loop body won't execute
+		if (
+			isset($varAnnotation['in_while_loop'])
+			&& $varAnnotation['in_while_loop']
+		) {
 			return null;
 		}
 
@@ -614,7 +624,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @param array<string, array{sql: string, line: int, var?: string}> $propertyPreparations
 	 * @param array<string, array<string, string>> $typeAliases
-	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool, doc_text?: string, method?: ClassMethod}>
+	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool, doc_text?: string, method?: ClassMethod, in_while_loop?: bool}>
 	 */
 	private function extractVarAnnotations(
 		ClassMethod $classMethod,
@@ -690,6 +700,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					'is_array_type' => $varShape['is_array_type'] ?? false,
 					'doc_text' => $varShape['doc_text'] ?? null,
 					'method' => $classMethod,
+					'in_while_loop' => $varShape['in_while_loop'] ?? false,
 				];
 			}
 		}
@@ -700,22 +711,47 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Recursively collect @var object{...} annotations
 	 *
-	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string, is_array_type?: bool, doc_text?: string}> &$varShapes
+	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string, is_array_type?: bool, doc_text?: string, in_while_loop?: bool}> &$varShapes
 	 * @param array<string, array<string, string>> $typeAliases
+	 * @param array{var: string, method: string}|null $whileLoopContext Context when processing while loop body
 	 */
 	private function collectVarAnnotationsRecursive(
 		Node $node,
 		array &$varShapes,
 		array $typeAliases,
+		null|array $whileLoopContext = null,
 	): void {
+		// Special handling for while loops: while ($user = $stmt->fetch()) { /** @var ... */ ... }
+		if ($node instanceof Node\Stmt\While_ && $whileLoopContext === null) {
+			$whileLoopFetchInfo = $this->extractFetchInfoFromWhileCondition($node);
+			if ($whileLoopFetchInfo !== []) {
+				// Process the while loop body with the fetch info from the condition
+				// Recurse into the while body with the context set
+				foreach ($node->stmts as $stmt) {
+					$this->collectVarAnnotationsRecursive(
+						$stmt,
+						$varShapes,
+						$typeAliases,
+						$whileLoopFetchInfo,
+					);
+				}
+
+				// Don't recurse normally into while loops - we've handled them specially
+				return;
+			}
+		}
+
 		$docComment = $node->getDocComment();
 		if ($docComment !== null) {
 			$docText = $docComment->getText();
 
-			// Only process @var comments on statement nodes (not expression nodes)
-			// to avoid processing the same comment multiple times as it bubbles down the AST
-			$isStatementNode =
-				$node instanceof Node\Stmt\Expression || $node instanceof Node\Stmt\Return_;
+			// Process @var comments on statement nodes
+			// When inside a while loop, accept any statement node
+			// Outside while loops, only accept Expression and Return_ nodes
+			$isStatementNode = $whileLoopContext !== null
+				? $node instanceof Node\Stmt
+				: $node instanceof Node\Stmt\Expression
+				|| $node instanceof Node\Stmt\Return_;
 
 			if ($isStatementNode) {
 				// Check if the @var has array syntax: array<object{...}> or object{...}[]
@@ -740,9 +776,16 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				if ($objectShape !== null) {
 					$varLine = $this->getVarAnnotationLine($docComment);
 
-					// Try to find which variable is being assigned in the next statement
-					// Pattern: /** @var ... */ $user = $stmt->fetch();
-					$fetchInfo = $this->getFetchInfoAfterComment($node);
+					// Determine fetch info based on context
+					if ($whileLoopContext !== null) {
+						// Inside while loop - use context from while condition
+						$fetchInfo = $whileLoopContext;
+						$inWhileLoop = true;
+					} else {
+						// Normal case - try to find fetch info from the node itself
+						$fetchInfo = $this->getFetchInfoAfterComment($node);
+						$inWhileLoop = false;
+					}
 
 					$varShapes[] = [
 						'line' => $varLine,
@@ -751,25 +794,80 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						'fetch_method' => $fetchInfo['method'] ?? null,
 						'is_array_type' => $isArrayType,
 						'doc_text' => $docText,
+						'in_while_loop' => $inWhileLoop,
 					];
 				}
 			}
 		}
 
-		// Recurse into child nodes
+		// Recurse into child nodes (pass along the while loop context if present)
 		foreach ($node->getSubNodeNames() as $subNodeName) {
 			$subNode = $node->$subNodeName;
 
 			if (is_array($subNode)) {
 				foreach ($subNode as $item) {
 					if ($item instanceof Node) {
-						$this->collectVarAnnotationsRecursive($item, $varShapes, $typeAliases);
+						$this->collectVarAnnotationsRecursive(
+							$item,
+							$varShapes,
+							$typeAliases,
+							$whileLoopContext,
+						);
 					}
 				}
 			} elseif ($subNode instanceof Node) {
-				$this->collectVarAnnotationsRecursive($subNode, $varShapes, $typeAliases);
+				$this->collectVarAnnotationsRecursive(
+					$subNode,
+					$varShapes,
+					$typeAliases,
+					$whileLoopContext,
+				);
 			}
 		}
+	}
+
+	/**
+	 * Extract fetch info from while loop condition
+	 * Pattern: while ($user = $stmt->fetch())
+	 *
+	 * @return array{var: string, method: string}|array{}
+	 */
+	private function extractFetchInfoFromWhileCondition(Node\Stmt\While_ $while): array
+	{
+		// Check if condition is an assignment
+		if (!$while->cond instanceof Node\Expr\Assign) {
+			return [];
+		}
+
+		$assign = $while->cond;
+
+		// Check if right side is a fetch/fetchObject/fetchAll method call
+		if (!$assign->expr instanceof MethodCall) {
+			return [];
+		}
+
+		$methodCall = $assign->expr;
+		if (!$methodCall->name instanceof Node\Identifier) {
+			return [];
+		}
+
+		$methodName = $methodCall->name->toString();
+		if (!in_array($methodName, ['fetch', 'fetchObject', 'fetchAll'], true)) {
+			return [];
+		}
+
+		// Get the statement variable being called on (e.g., $stmt)
+		if (
+			!$methodCall->var instanceof Variable
+			|| !is_string($methodCall->var->name)
+		) {
+			return [];
+		}
+
+		return [
+			'var' => $methodCall->var->name,
+			'method' => $methodName,
+		];
 	}
 
 	/**

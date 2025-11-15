@@ -344,4 +344,43 @@ class SelectColumnErrors
 		/** @var object{id: int, name: string} */
 		$user = $stmt->fetch();
 	}
+
+	public function whileLoopWithColumnMismatch(): void
+	{
+		// while loop with @var inside body
+		// Column typo: "nam" instead of "name"
+		// This should ERROR for both missing |false and column mismatch
+		$stmt = $this->db->prepare('SELECT id, nam FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		while ($user = $stmt->fetch()) {
+			/** @var object{id: int, name: string} */
+			echo $user->name;
+		}
+	}
+
+	public function whileLoopWithValidColumns(): void
+	{
+		// while loop with @var inside body - valid columns
+		// Should only ERROR for missing |false
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		while ($user = $stmt->fetch()) {
+			/** @var object{id: int, name: string} */
+			echo $user->name;
+		}
+	}
+
+	public function whileLoopWithFalseType(): void
+	{
+		// while loop with |false in type - should NOT error
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		while ($user = $stmt->fetch()) {
+			/** @var object{id: int, name: string}|false */
+			echo $user->name;
+		}
+	}
 }
