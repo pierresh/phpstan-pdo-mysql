@@ -47,6 +47,14 @@ class DetectSelfReferenceConditionsRuleTest extends RuleTestCase
 				"Self-referencing WHERE condition: 'products.category_id = products.category_id'",
 				107,
 			],
+			[
+				"Self-referencing JOIN condition: 'p.id = products.id'",
+				114,
+			],
+			[
+				"Self-referencing WHERE condition: 'u.id = users.id'",
+				125,
+			],
 		]);
 	}
 

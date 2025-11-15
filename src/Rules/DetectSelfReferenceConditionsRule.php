@@ -262,9 +262,10 @@ class DetectSelfReferenceConditionsRule implements Rule
 	{
 		$errors = [];
 
-		// Reset pattern occurrences and cache for this SQL query
+		// Reset pattern occurrences, cache, and alias map for this SQL query
 		$this->patternOccurrences = [];
 		$this->patternLineCache = [];
+		$this->aliasMap = [];
 
 		// Skip if SQLFTW is not available
 		if (!class_exists(SqlFtwParser::class)) {
@@ -303,8 +304,13 @@ class DetectSelfReferenceConditionsRule implements Rule
 					continue;
 				}
 
-				// Check JOIN conditions
+				// Build alias map from FROM clause
 				$from = $selectCommand->getFrom();
+				if ($from instanceof \SqlFtw\Sql\Dml\TableReference\TableReferenceNode) {
+					$this->buildAliasMap($from);
+				}
+
+				// Check JOIN conditions
 				if ($from instanceof \SqlFtw\Sql\Dml\TableReference\TableReferenceNode) {
 					$joinErrors = $this->checkJoinConditions($from, $line, $sql);
 					$errors = array_merge($errors, $joinErrors);
@@ -419,6 +425,49 @@ class DetectSelfReferenceConditionsRule implements Rule
 	private array $patternLineCache = [];
 
 	/**
+	 * Map of table aliases to actual table names for the current query
+	 * @var array<string, string> Map of alias => table_name
+	 */
+	private array $aliasMap = [];
+
+	/**
+	 * Build a map of table aliases from the FROM clause
+	 * Recursively processes JOINs to collect all aliases
+	 */
+	private function buildAliasMap(object $tableRef): void
+	{
+		// Check if this is a table reference with an alias
+		if ($tableRef instanceof \SqlFtw\Sql\Dml\TableReference\TableReferenceTable) {
+			$tableName = $tableRef->getTable()->getFullName();
+			$alias = $tableRef->getAlias();
+
+			if ($alias !== null) {
+				// Store alias => table mapping
+				$this->aliasMap[$alias] = $tableName;
+			}
+
+			// Also map table name to itself for consistent resolution
+			$this->aliasMap[$tableName] = $tableName;
+		}
+
+		// Recursively process JOINs
+		if ($tableRef instanceof InnerJoin || $tableRef instanceof OuterJoin) {
+			$this->buildAliasMap($tableRef->getLeft());
+			$this->buildAliasMap($tableRef->getRight());
+		}
+	}
+
+	/**
+	 * Resolve a table reference to its base table name
+	 * If it's an alias, return the actual table name
+	 * Otherwise, return the original name
+	 */
+	private function resolveTableName(string $tableOrAlias): string
+	{
+		return $this->aliasMap[$tableOrAlias] ?? $tableOrAlias;
+	}
+
+	/**
 	 * Check if a comparison operator references the same column on both sides
 	 */
 	private function checkComparisonForSelfReference(
@@ -437,11 +486,33 @@ class DetectSelfReferenceConditionsRule implements Rule
 			return null;
 		}
 
-		// Compare full names (table.column)
+		// Get full names (table.column or alias.column)
 		$leftFullName = $rootNode->getFullName();
 		$rightFullName = $right->getFullName();
 
-		if ($leftFullName === $rightFullName) {
+		// Parse table and column from qualified names
+		$leftParts = explode('.', $leftFullName);
+		$rightParts = explode('.', $rightFullName);
+
+		// We need at least table.column format
+		if (count($leftParts) < 2 || count($rightParts) < 2) {
+			return null;
+		}
+
+		$leftTable = $leftParts[0];
+		$leftColumn = $leftParts[1];
+		$rightTable = $rightParts[0];
+		$rightColumn = $rightParts[1];
+
+		// Resolve aliases to actual table names
+		$resolvedLeftTable = $this->resolveTableName($leftTable);
+		$resolvedRightTable = $this->resolveTableName($rightTable);
+
+		// Check if both sides reference the same table.column (after alias resolution)
+		if (
+			$resolvedLeftTable === $resolvedRightTable
+			&& $leftColumn === $rightColumn
+		) {
 			// Track occurrence of this specific pattern
 			$pattern = sprintf('%s = %s', $leftFullName, $rightFullName);
 			if (!isset($this->patternOccurrences[$pattern])) {
@@ -452,8 +523,10 @@ class DetectSelfReferenceConditionsRule implements Rule
 			$this->patternOccurrences[$pattern]++;
 
 			// Calculate the actual PHP line number where the error occurs
+			// Pass the actual pattern found in SQL (not the resolved pattern)
 			$errorLine = $this->calculateErrorLine(
-				$rootNode,
+				$leftFullName,
+				$rightFullName,
 				$baseLine,
 				$originalSql,
 				$occurrenceIndex,
@@ -483,13 +556,13 @@ class DetectSelfReferenceConditionsRule implements Rule
 	 * Uses caching to avoid repeated regex scanning for the same pattern.
 	 */
 	private function calculateErrorLine(
-		QualifiedName $qualifiedName,
+		string $leftFullName,
+		string $rightFullName,
 		int $baseLine,
 		string $originalSql,
 		int $occurrenceIndex,
 	): int {
-		$fullName = $qualifiedName->getFullName();
-		$pattern = sprintf('%s = %s', $fullName, $fullName); // Pattern key for cache
+		$pattern = sprintf('%s = %s', $leftFullName, $rightFullName); // Pattern key for cache
 
 		// Check cache first
 		if (isset($this->patternLineCache[$pattern][$occurrenceIndex])) {
@@ -503,8 +576,9 @@ class DetectSelfReferenceConditionsRule implements Rule
 
 			// Build regex pattern to match with flexible whitespace
 			// Escape dots in table.column names for regex
-			$escapedName = preg_quote($fullName, '/');
-			$selfRefRegex = '/' . $escapedName . '\s*=\s*' . $escapedName . '/';
+			$escapedLeft = preg_quote($leftFullName, '/');
+			$escapedRight = preg_quote($rightFullName, '/');
+			$selfRefRegex = '/' . $escapedLeft . '\s*=\s*' . $escapedRight . '/';
 
 			// Find ALL occurrences and cache them
 			$occurrence = 0;

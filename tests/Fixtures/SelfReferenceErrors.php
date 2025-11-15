@@ -104,4 +104,48 @@ class SelfReferenceErrors
 		$stmt = $this->db->prepare($sql);
 		$stmt->execute();
 	}
+
+	public function aliasSelfReferenceInJoin(): void
+	{
+		// Error: Self-reference using alias (alias.id = table.id)
+		$stmt = $this->db->prepare('
+            SELECT *
+            FROM products AS p
+            INNER JOIN orders ON p.id = products.id
+        ');
+		$stmt->execute();
+	}
+
+	public function aliasSelfReferenceInWhere(): void
+	{
+		// Error: Self-reference using alias in WHERE
+		$stmt = $this->db->prepare('
+            SELECT *
+            FROM users u
+            WHERE u.id = users.id
+        ');
+		$stmt->execute();
+	}
+
+	public function multipleAliasesSameTable(): void
+	{
+		// Valid: Different aliases for same table (self-join pattern)
+		$stmt = $this->db->prepare('
+            SELECT *
+            FROM products p1
+            INNER JOIN products p2 ON p1.id = p2.parent_id
+        ');
+		$stmt->execute();
+	}
+
+	public function aliasValidJoin(): void
+	{
+		// Valid: Alias for one table, joins with different table
+		$stmt = $this->db->prepare('
+            SELECT *
+            FROM orders o
+            INNER JOIN products p ON o.product_id = p.id
+        ');
+		$stmt->execute();
+	}
 }
