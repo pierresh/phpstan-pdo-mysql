@@ -95,7 +95,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Process var annotations and validate them
 	 *
-	 * @param array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool}> $varAnnotations
+	 * @param array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool, doc_text?: string, method?: ClassMethod}> $varAnnotations
 	 * @param array<string, bool> &$seen
 	 * @return array<\PHPStan\Rules\RuleError>
 	 */
@@ -119,6 +119,12 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			if ($fetchMethodError instanceof \PHPStan\Rules\RuleError) {
 				$errors[] = $fetchMethodError;
 				continue; // Skip column validation if type structure is wrong
+			}
+
+			// Validate false handling for fetch() and fetchObject()
+			$falseHandlingError = $this->validateFalseHandling($varAnnotation);
+			if ($falseHandlingError instanceof \PHPStan\Rules\RuleError) {
+				$errors[] = $falseHandlingError;
 			}
 
 			// Validate columns
@@ -203,6 +209,182 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		}
 
 		return null;
+	}
+
+	/**
+	 * Validate false handling for fetch() and fetchObject()
+	 * These methods can return false when no results found, unless:
+	 * 1. The PHPDoc includes |false union type
+	 * 2. The code checks rowCount() before fetch
+	 * 3. The code checks === false, !== false, or !$var after fetch
+	 *
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool, doc_text?: string, method?: ClassMethod} $varAnnotation
+	 */
+	private function validateFalseHandling(array $varAnnotation): null|\PHPStan\Rules\RuleError
+	{
+		// Only validate fetch() and fetchObject(), NOT fetchAll()
+		if (!isset($varAnnotation['fetch_method'])) {
+			return null;
+		}
+
+		$fetchMethod = $varAnnotation['fetch_method'];
+		if ($fetchMethod !== 'fetch' && $fetchMethod !== 'fetchObject') {
+			return null;
+		}
+
+		// Check if PHPDoc includes |false
+		if (isset($varAnnotation['doc_text'])) {
+			$docText = $varAnnotation['doc_text'];
+			// Match @var ... |false or @var false|... (with optional spaces around |)
+			if (
+				preg_match('/@var\s+[^@\n]*\|\s*false/', $docText)
+				|| preg_match('/@var\s+false\s*\|/', $docText)
+			) {
+				return null; // Has |false, no error
+			}
+		}
+
+		// Check if code has false-handling nearby
+		if (
+			isset($varAnnotation['method'])
+			&& $this->hasFalseHandlingInMethod($varAnnotation['method'])
+		) {
+			return null; // Has false handling, no error
+		}
+
+		// No |false and no false-handling detected
+		return RuleErrorBuilder::message(sprintf(
+			'Missing |false in @var type: %s() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line %d)',
+			$fetchMethod,
+			$varAnnotation['sql_line'],
+		))
+			->line($varAnnotation['var_line'])
+			->identifier('pdoSql.missingFalseType')
+			->build();
+	}
+
+	/**
+	 * Check if the code has false-handling patterns in the method
+	 * Optimized single-pass detection for:
+	 * - rowCount() checks that throw/return before fetch
+	 * - === false, !== false, or !$var checks after fetch
+	 */
+	private function hasFalseHandlingInMethod(ClassMethod $classMethod): bool
+	{
+		$statements = $classMethod->getStmts() ?? [];
+
+		// Single pass through statements - check both patterns at once
+		foreach ($statements as $statement) {
+			// Fast check: is this an if statement?
+			if ($statement instanceof Node\Stmt\If_) {
+				// Check for rowCount() with throw/return (most specific check first)
+				if ($this->isRowCountCheckWithThrowOrReturn($statement)) {
+					return true;
+				}
+
+				// Check for false comparison in condition
+				if ($this->hasFalseComparisonInCondition($statement->cond)) {
+					return true;
+				}
+			}
+
+			// Quick check for boolean not in if conditions
+			if (
+				$statement instanceof Node\Stmt\If_
+				&& $statement->cond instanceof Node\Expr\BooleanNot
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Optimized check for rowCount() with throw/return
+	 */
+	private function isRowCountCheckWithThrowOrReturn(Node\Stmt\If_ $if): bool
+	{
+		// Quick check: does condition contain rowCount()?
+		if (!$this->containsRowCountCall($if->cond)) {
+			return false;
+		}
+
+		// Check if body has throw or return (only check top-level statements)
+		foreach ($if->stmts as $stmt) {
+			if (
+				$stmt instanceof Node\Stmt\Throw_
+				|| $stmt instanceof Node\Stmt\Return_
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Fast non-recursive check for rowCount() in condition
+	 * Only searches one level deep for performance
+	 */
+	private function containsRowCountCall(Node\Expr $expr): bool
+	{
+		// Direct method call: $stmt->rowCount()
+		if (
+			$expr instanceof MethodCall
+			&& $expr->name instanceof Node\Identifier
+			&& $expr->name->toString() === 'rowCount'
+		) {
+			return true;
+		}
+
+		// Binary operation: $stmt->rowCount() === 0
+		if ($expr instanceof Node\Expr\BinaryOp) {
+			if (
+				$expr->left instanceof MethodCall
+				&& $expr->left->name instanceof Node\Identifier
+				&& $expr->left->name->toString() === 'rowCount'
+			) {
+				return true;
+			}
+
+			if (
+				$expr->right instanceof MethodCall
+				&& $expr->right->name instanceof Node\Identifier
+				&& $expr->right->name->toString() === 'rowCount'
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Fast check for false comparison (=== false, !== false)
+	 */
+	private function hasFalseComparisonInCondition(Node\Expr $expr): bool
+	{
+		// Check for === false or !== false comparisons
+		if (
+			$expr instanceof Node\Expr\BinaryOp\Identical
+			|| $expr instanceof Node\Expr\BinaryOp\NotIdentical
+		) {
+			// Check if either side is false literal
+			$leftIsFalse =
+				$expr->left instanceof Node\Expr\ConstFetch
+				&& $expr->left->name instanceof Node\Name
+				&& $expr->left->name->toString() === 'false';
+
+			$rightIsFalse =
+				$expr->right instanceof Node\Expr\ConstFetch
+				&& $expr->right->name instanceof Node\Name
+				&& $expr->right->name->toString() === 'false';
+
+			return $leftIsFalse || $rightIsFalse;
+		}
+
+		return false;
 	}
 
 	/**
@@ -432,7 +614,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @param array<string, array{sql: string, line: int, var?: string}> $propertyPreparations
 	 * @param array<string, array<string, string>> $typeAliases
-	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool}>
+	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool, doc_text?: string, method?: ClassMethod}>
 	 */
 	private function extractVarAnnotations(
 		ClassMethod $classMethod,
@@ -506,6 +688,8 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					'var_line' => $varShape['line'],
 					'fetch_method' => $varShape['fetch_method'] ?? null,
 					'is_array_type' => $varShape['is_array_type'] ?? false,
+					'doc_text' => $varShape['doc_text'] ?? null,
+					'method' => $classMethod,
 				];
 			}
 		}
@@ -516,7 +700,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Recursively collect @var object{...} annotations
 	 *
-	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string, is_array_type?: bool}> &$varShapes
+	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string, is_array_type?: bool, doc_text?: string}> &$varShapes
 	 * @param array<string, array<string, string>> $typeAliases
 	 */
 	private function collectVarAnnotationsRecursive(
@@ -566,6 +750,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						'fetch_var' => $fetchInfo['var'] ?? null,
 						'fetch_method' => $fetchInfo['method'] ?? null,
 						'is_array_type' => $isArrayType,
+						'doc_text' => $docText,
 					];
 				}
 			}

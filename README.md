@@ -248,6 +248,82 @@ $user = $stmt->fetch();
 > - Generic syntax: `array<object{...}>`
 > - Suffix syntax: `object{...}[]`
 
+#### False Return Type Validation
+
+The extension validates that `fetch()` and `fetchObject()` calls properly handle the `false` return value that occurs when no rows are found.
+
+```php
+// ❌ Missing |false in type annotation
+$stmt = $db->prepare("SELECT id, name FROM users WHERE id = :id");
+$stmt->execute(['id' => 1]);
+
+/** @var object{id: int, name: string} */
+$user = $stmt->fetch(); // Can return false!
+```
+
+> [!CAUTION]
+> Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line X)
+
+```php
+// ✅ Correct: Include |false in union type
+$stmt = $db->prepare("SELECT id, name FROM users WHERE id = :id");
+$stmt->execute(['id' => 1]);
+
+/** @var object{id: int, name: string}|false */
+$user = $stmt->fetch();
+
+// Both styles are supported:
+/** @var object{id: int, name: string} | false */  // With spaces
+/** @var false|object{id: int, name: string} */    // Reverse order
+```
+
+```php
+// ✅ Correct: Check rowCount() with throw/return
+$stmt = $db->prepare("SELECT id, name FROM users WHERE id = :id");
+$stmt->execute(['id' => 1]);
+
+if ($stmt->rowCount() === 0) {
+    throw new \RuntimeException('User not found');
+}
+
+/** @var object{id: int, name: string} */
+$user = $stmt->fetch(); // Safe - won't execute if no rows
+```
+
+```php
+// ✅ Correct: Check for false after fetch
+$stmt = $db->prepare("SELECT id, name FROM users WHERE id = :id");
+$stmt->execute(['id' => 1]);
+
+/** @var object{id: int, name: string} */
+$user = $stmt->fetch();
+
+if ($user === false) {
+    throw new \RuntimeException('User not found');
+}
+// Or: if ($user !== false) { ... }
+// Or: if (!$user) { ... }
+```
+
+```php
+// ❌ rowCount() without throw/return doesn't help
+$stmt = $db->prepare("SELECT id, name FROM users WHERE id = :id");
+$stmt->execute(['id' => 1]);
+
+if ($stmt->rowCount() === 0) {
+    // Empty block - execution continues!
+}
+
+/** @var object{id: int, name: string} */
+$user = $stmt->fetch(); // Still can return false!
+```
+
+> [!CAUTION]
+> Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line X)
+
+> [!NOTE]
+> This validation applies only to `fetch()` and `fetchObject()`. The `fetchAll()` method returns an empty array instead of false, so it doesn't require `|false` in the type annotation.
+
 ### 4. Self-Reference Detection
 
 Detects self-reference conditions where the same column is compared to itself. This is likely a bug where the developer meant to reference a different table or column.
@@ -370,6 +446,7 @@ These rules are designed to be fast:
 | `pdoSql.columnMismatch` | SELECT Column Validation | Column name typo detected (case-sensitive) |
 | `pdoSql.columnMissing` | SELECT Column Validation | PHPDoc property missing from SELECT  |
 | `pdoSql.fetchTypeMismatch` | SELECT Column Validation | Fetch method doesn't match PHPDoc type structure |
+| `pdoSql.missingFalseType` | SELECT Column Validation | Missing `\|false` union type for `fetch()`/`fetchObject()` |
 | `pdoSql.selfReferenceCondition` | Self-Reference Detection | Self-referencing condition in JOIN or WHERE clause |
 
 ### Ignoring Specific Errors
@@ -392,6 +469,7 @@ parameters:
         - identifier: pdoSql.columnMismatch
         - identifier: pdoSql.columnMissing
         - identifier: pdoSql.fetchTypeMismatch
+        - identifier: pdoSql.missingFalseType
 
         # Ignore all self-reference detection errors
         - identifier: pdoSql.selfReferenceCondition

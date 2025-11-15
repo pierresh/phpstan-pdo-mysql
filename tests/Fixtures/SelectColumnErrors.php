@@ -208,4 +208,140 @@ class SelectColumnErrors
 		/** @var object{id: int, name: string}[] */
 		$user = $stmt->fetch();
 	}
+
+	public function fetchWithoutFalseType(): void
+	{
+		// fetch() can return false, but @var doesn't include |false
+		// No false-handling code present
+		// This should ERROR: Missing |false in type
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string} */
+		$user = $stmt->fetch();
+	}
+
+	public function fetchWithFalseType(): void
+	{
+		// fetch() with |false in type - should NOT error
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string}|false */
+		$user = $stmt->fetch();
+	}
+
+	public function fetchWithFalseTypeWithSpace(): void
+	{
+		// fetch() with | false (space before false) - should NOT error
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string} | false */
+		$user = $stmt->fetch();
+	}
+
+	public function fetchWithFalseTypeReverseOrder(): void
+	{
+		// fetch() with false|object (reverse order) - should NOT error
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/** @var false|object{id: int, name: string} */
+		$user = $stmt->fetch();
+	}
+
+	public function fetchWithRowCountCheck(): void
+	{
+		// fetch() without |false but has rowCount() check - should NOT error
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		if ($stmt->rowCount() === 0) {
+			throw new \RuntimeException('User not found');
+		}
+
+		/** @var object{id: int, name: string} */
+		$user = $stmt->fetch();
+	}
+
+	public function fetchWithExplicitFalseCheck(): void
+	{
+		// fetch() without |false but checks === false - should NOT error
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string} */
+		$user = $stmt->fetch();
+
+		if ($user === false) {
+			throw new \RuntimeException('User not found');
+		}
+	}
+
+	public function fetchObjectWithoutFalseType(): void
+	{
+		// fetchObject() can return false, but @var doesn't include |false
+		// No false-handling code present
+		// This should ERROR: Missing |false in type
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string} */
+		$user = $stmt->fetchObject();
+	}
+
+	public function fetchAllShouldNotRequireFalse(): void
+	{
+		// fetchAll() returns array, NOT false
+		// Should NOT error even without |false
+		$stmt = $this->db->prepare('SELECT id, name FROM users');
+		$stmt->execute();
+
+		/** @var array<object{id: int, name: string}> */
+		$users = $stmt->fetchAll();
+	}
+
+	public function fetchWithNotFalseCheck(): void
+	{
+		// fetch() without |false but checks !== false - should NOT error
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string} */
+		$user = $stmt->fetch();
+
+		if ($user !== false) {
+			// Use $user
+		}
+	}
+
+	public function fetchWithNegationCheck(): void
+	{
+		// fetch() without |false but checks !$user - should NOT error
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string} */
+		$user = $stmt->fetch();
+
+		if (!$user) {
+			throw new \RuntimeException('User not found');
+		}
+	}
+
+	public function fetchWithRowCountCheckNoThrow(): void
+	{
+		// fetch() without |false and rowCount() check without throw/return
+		// This should ERROR because rowCount check doesn't prevent execution
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		if ($stmt->rowCount() === 0) {
+			// Empty - doesn't throw or return
+		}
+
+		/** @var object{id: int, name: string} */
+		$user = $stmt->fetch();
+	}
 }

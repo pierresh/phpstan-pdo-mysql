@@ -56,10 +56,14 @@ composer.json                        # Package definition
 - **Validates**: Missing parameters, extra parameters, wrong parameter names
 
 ### 3. ValidateSelectColumnsMatchPhpDocRule
-- **Purpose**: Validates SELECT columns match PHPDoc type annotations
+- **Purpose**: Validates SELECT columns match PHPDoc type annotations and ensures proper type safety
 - **Supports**: Direct annotations (`@var object{...}`) and type aliases (`@phpstan-type`)
-- **Validates**: Missing columns, column name typos (case-sensitive)
+- **Validates**:
+  - Missing columns, column name typos (case-sensitive)
+  - Fetch method type matching (`fetch()` vs `fetchAll()`)
+  - **False return type handling** - Ensures `fetch()`/`fetchObject()` include `|false` or have proper false-handling
 - **Allows**: Extra columns in SELECT (selecting more than PHPDoc expects is fine)
+- **Performance**: Optimized single-pass detection with early bailouts for false-handling checks
 
 ### 4. DetectSelfReferenceConditionsRule
 - **Purpose**: Catches useless self-reference conditions in SQL queries
