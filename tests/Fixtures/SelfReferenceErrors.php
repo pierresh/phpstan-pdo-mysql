@@ -18,8 +18,8 @@ class SelfReferenceErrors
 		// Error: JOIN condition references same table.column on both sides
 		$stmt = $this->db->prepare('
             SELECT *
-            FROM customized_mr_list_sp
-            INNER JOIN sp_list ON sp_list.sp_id = sp_list.sp_id
+            FROM orders
+            INNER JOIN products ON products.id = products.id
             WHERE id = 1
         ');
 		$stmt->execute();
@@ -75,8 +75,8 @@ class SelfReferenceErrors
 		// Valid: Different tables on left and right
 		$stmt = $this->db->prepare('
             SELECT *
-            FROM customized_mr_list_sp
-            INNER JOIN sp_list ON customized_mr_list_sp.sp_id = sp_list.sp_id
+            FROM orders
+            INNER JOIN products ON orders.product_id = products.id
             WHERE id = 1
         ');
 		$stmt->execute();

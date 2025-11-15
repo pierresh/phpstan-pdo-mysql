@@ -20,7 +20,7 @@ class DetectSelfReferenceConditionsRuleTest extends RuleTestCase
 	{
 		$this->analyse([__DIR__ . '/../Fixtures/SelfReferenceErrors.php'], [
 			[
-				"Self-referencing JOIN condition: 'sp_list.sp_id = sp_list.sp_id'",
+				"Self-referencing JOIN condition: 'products.id = products.id'",
 				22,
 			],
 			[

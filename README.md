@@ -40,7 +40,7 @@ $stmt = $db->query("SELECT * FROM");
 ```
 
 > [!CAUTION]
-> Error: SQL syntax error in query(): Expected token NAME ~RESERVED, but end of query found instead.
+> SQL syntax error in query(): Expected token NAME ~RESERVED, but end of query found instead.
 
 ```php
 // ❌ Trailing comma in VALUES
@@ -51,7 +51,7 @@ $stmt = $db->prepare("
 ```
 
 > [!CAUTION]
-> Error: SQL syntax error in prepare(): Expected token NAME|VALUE, but token SYMBOL with value ")" found instead.
+> SQL syntax error in prepare(): Expected token NAME|VALUE, but token SYMBOL with value ")" found instead.
 
 Works with both direct strings and variables:
 
@@ -61,7 +61,7 @@ $stmt = $db->query($sql);
 ```
 
 > [!CAUTION]
-> Error: SQL syntax error in query(): Expected token NAME ~RESERVED, but end of query found instead.
+> SQL syntax error in query(): Expected token NAME ~RESERVED, but end of query found instead.
 
 ```php
 // ✅ Valid SQL
@@ -79,7 +79,7 @@ $stmt->execute(['id' => 1]); // Missing :name
 ```
 
 > [!CAUTION]
-> Error: Missing parameter :name in execute() array - SQL query (line X) expects this parameter
+> Missing parameter :name in execute()
 
 ```php
 // ❌ Extra parameter
@@ -88,7 +88,7 @@ $stmt->execute(['id' => 1, 'extra' => 'unused']);
 ```
 
 > [!CAUTION]
-> Error: Parameter :extra in execute() array is not used in SQL query (line X)
+> Parameter :extra in execute() is not used
 
 ```php
 // ❌ Wrong parameter name
@@ -97,8 +97,9 @@ $stmt->execute(['id' => 1]); // Should be :user_id
 ```
 
 > [!CAUTION]
-> Error: Missing parameter :user_id in execute() array - SQL query (line X) expects this parameter
-> Error: Parameter :id in execute() array is not used in SQL query (line X)
+> Missing parameter :user_id in execute()
+>
+> Parameter :id in execute() is not used
 
 ```php
 // ✅ Valid bindings
@@ -115,15 +116,16 @@ $stmt->execute(['name' => 'John']); // Wrong parameter
 ```
 
 > [!CAUTION]
-> Error: Missing parameter :id in execute() array - SQL query (line X) expects this parameter
-> Error: Parameter :name in execute() array is not used in SQL query (line X)
+> Missing parameter :id in execute()
+>
+> Parameter :name in execute() is not used
 
 ### 3. SELECT Column Validation
 
 Validates that SELECT columns match the PHPDoc type annotation.
 
 > [!NOTE]
-> This rule supports `fetch()`, `fetchObject()`, and `fetchAll()` methods, assuming the fetch mode is `PDO::FETCH_OBJ` (returning objects). Other fetch modes like `PDO::FETCH_ASSOC` (arrays) or `PDO::FETCH_CLASS` are not currently validated.
+> This rule supports `fetch()`, `fetchObject()`, and `fetchAll()` methods, assuming the fetch mode of the database connection is `PDO::FETCH_OBJ` (returning objects). Other fetch modes like `PDO::FETCH_ASSOC` (arrays) or `PDO::FETCH_CLASS` are not currently validated.
 
 ```php
 // ❌ Column typo: "nam" instead of "name"
@@ -135,7 +137,7 @@ $user = $stmt->fetch();
 ```
 
 > [!CAUTION]
-> Error: SELECT column mismatch: PHPDoc expects property "name" but SELECT (line X) has "nam" - possible typo?
+> SELECT column mismatch: PHPDoc expects property "name" but SELECT (line X) has "nam" - possible typo?
 
 ```php
 // ❌ Missing column
@@ -147,7 +149,7 @@ $user = $stmt->fetch();
 ```
 
 > [!CAUTION]
-> Error: SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line X)
+> SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line X)
 
 ```php
 // ✅ Valid columns
@@ -184,8 +186,9 @@ class UserRepository
 ```
 
 > [!CAUTION]
-> Error: SELECT column mismatch: PHPDoc expects property "name" but SELECT (line X) has "nam" - possible typo?
-> Error: SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line X)
+> SELECT column mismatch: PHPDoc expects property "name" but SELECT (line X) has "nam" - possible typo?
+>
+> SELECT column missing: PHPDoc expects property "email" but it is not in the SELECT query (line X)
 
 ```php
     }
@@ -206,7 +209,7 @@ $users = $stmt->fetchAll(); // Wrong: should be array type
 ```
 
 > [!CAUTION]
-> Error: Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line X)
+> Type mismatch: fetchAll() returns array<object{...}> but PHPDoc specifies object{...} (line X)
 
 ```php
 // ❌ fetch() returns a single object, not an array
@@ -218,7 +221,7 @@ $user = $stmt->fetch(); // Wrong: should be single object type
 ```
 
 > [!CAUTION]
-> Error: Type mismatch: fetch() returns object{...} but PHPDoc specifies array<object{...}> (line X)
+> Type mismatch: fetch() returns object{...} but PHPDoc specifies array<object{...}> (line X)
 
 ```php
 // ✅ Correct: fetchAll() with array type (generic syntax)
@@ -247,7 +250,7 @@ $user = $stmt->fetch();
 
 ### 4. Self-Reference Detection
 
-Detects useless self-reference conditions where the same column is compared to itself. This is almost always a bug where the developer meant to reference a different table or column.
+Detects self-reference conditions where the same column is compared to itself. This is likely a bug where the developer meant to reference a different table or column.
 
 ```php
 // ❌ Self-reference in JOIN condition
@@ -259,7 +262,7 @@ $stmt = $db->prepare("
 ```
 
 > [!CAUTION]
-> Error: Self-referencing JOIN condition: 'users.id = users.id'
+> Self-referencing JOIN condition: 'users.id = users.id'
 
 ```php
 // ❌ Self-reference in WHERE clause
@@ -271,21 +274,22 @@ $stmt = $db->prepare("
 ```
 
 > [!CAUTION]
-> Error: Self-referencing WHERE condition: 'products.category_id = products.category_id'
+> Self-referencing WHERE condition: 'products.category_id = products.category_id'
 
 ```php
 // ❌ Multiple self-references in same query
 $stmt = $db->prepare("
     SELECT *
-    FROM customized_mr_list_sp
-    INNER JOIN sp_list ON sp_list.sp_id = sp_list.sp_id
-    WHERE sp_list.active = sp_list.active
+    FROM orders
+    INNER JOIN products ON products.id = products.id
+    WHERE products.active = products.active
 ");
 ```
 
 > [!CAUTION]
-> Error: Self-referencing JOIN condition: 'sp_list.sp_id = sp_list.sp_id'
-> Error: Self-referencing WHERE condition: 'sp_list.active = sp_list.active'
+> Self-referencing JOIN condition: 'products.id = products.id'
+>
+> Self-referencing WHERE condition: 'products.active = products.active'
 
 ```php
 // ✅ Valid JOIN - different columns
@@ -354,7 +358,21 @@ These rules are designed to be fast:
 - Skips very long queries (>10,000 characters)
 - Gracefully handles missing dependencies
 
-## Ignoring Specific Errors
+## Available Error Identifiers
+
+| Identifier | Rule | Description |
+|------------|------|-------------|
+| `pdoSql.sqlSyntax` | SQL Syntax Validation | SQL syntax error detected |
+| `pdoSql.missingParameter` | Parameter Bindings | Parameter expected in SQL but missing from `execute()` array |
+| `pdoSql.extraParameter` | Parameter Bindings | Parameter in `execute()` array but not used in SQL |
+| `pdoSql.missingBinding` | Parameter Bindings | Parameter expected but no `bindValue()`/`bindParam()` found |
+| `pdoSql.extraBinding` | Parameter Bindings | Parameter bound but not used in SQL |
+| `pdoSql.columnMismatch` | SELECT Column Validation | Column name typo detected (case-sensitive) |
+| `pdoSql.columnMissing` | SELECT Column Validation | PHPDoc property missing from SELECT  |
+| `pdoSql.fetchTypeMismatch` | SELECT Column Validation | Fetch method doesn't match PHPDoc type structure |
+| `pdoSql.selfReferenceCondition` | Self-Reference Detection | Self-referencing condition in JOIN or WHERE clause |
+
+### Ignoring Specific Errors
 
 All errors from this extension have custom identifiers that allow you to selectively ignore them in your `phpstan.neon`:
 
@@ -394,20 +412,6 @@ parameters:
             message: '#Missing parameter :legacy_id#'
             identifier: pdoSql.missingParameter
 ```
-
-### Available Error Identifiers
-
-| Identifier | Rule | Description |
-|------------|------|-------------|
-| `pdoSql.sqlSyntax` | SQL Syntax Validation | SQL syntax error detected |
-| `pdoSql.missingParameter` | Parameter Bindings | Parameter expected in SQL but missing from `execute()` array |
-| `pdoSql.extraParameter` | Parameter Bindings | Parameter in `execute()` array but not used in SQL |
-| `pdoSql.missingBinding` | Parameter Bindings | Parameter expected but no `bindValue()`/`bindParam()` found |
-| `pdoSql.extraBinding` | Parameter Bindings | Parameter bound but not used in SQL |
-| `pdoSql.columnMismatch` | SELECT Column Validation | Column name typo detected (case-sensitive) |
-| `pdoSql.columnMissing` | SELECT Column Validation | PHPDoc property missing from SELECT  |
-| `pdoSql.fetchTypeMismatch` | SELECT Column Validation | Fetch method doesn't match PHPDoc type structure |
-| `pdoSql.selfReferenceCondition` | Self-Reference Detection | Self-referencing condition in JOIN or WHERE clause |
 
 ## Playground
 
