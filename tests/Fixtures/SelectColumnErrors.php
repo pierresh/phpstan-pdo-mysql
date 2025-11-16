@@ -383,4 +383,58 @@ class SelectColumnErrors
 			echo $user->name;
 		}
 	}
+
+	public function returnFetchWithoutFalseType(): object
+	{
+		// return fetch() without |false in type - should ERROR
+		$stmt = $this->db->prepare(
+			'SELECT id, name, email FROM users WHERE id = :id',
+		);
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string, email: string} */
+		return $stmt->fetch();
+	}
+
+	public function returnFetchWithFalseType(): object|false
+	{
+		// return fetch() with |false in type - should NOT error
+		$stmt = $this->db->prepare(
+			'SELECT id, name, email FROM users WHERE id = :id',
+		);
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string, email: string}|false */
+		return $stmt->fetch();
+	}
+
+	public function returnFetchObjectWithoutFalseType(): object
+	{
+		// return fetchObject() without |false in type - should ERROR
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string} */
+		return $stmt->fetchObject();
+	}
+
+	public function returnFetchObjectWithFalseType(): object|false
+	{
+		// return fetchObject() with |false in type - should NOT error
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string}|false */
+		return $stmt->fetchObject();
+	}
+
+	public function returnFetchWithColumnMismatch(): object
+	{
+		// return fetch() with column typo - should ERROR for both column mismatch and missing |false
+		$stmt = $this->db->prepare('SELECT id, nam FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string} */
+		return $stmt->fetch();
+	}
 }

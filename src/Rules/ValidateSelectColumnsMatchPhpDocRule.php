@@ -894,13 +894,14 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Extract fetch information from a statement with a var comment
 	 * Pattern: comment followed by assignment like user = stmt->fetch()
+	 * Or: comment followed by return like return stmt->fetch()
 	 * We want to extract "stmt" (the variable being fetched from) and the method name
 	 *
 	 * @return array{var?: string, method?: string}
 	 */
 	private function getFetchInfoAfterComment(Node $node): array
 	{
-		// The node with the @var comment could be an assignment
+		// Case 1: Assignment - /** @var ... */ $user = $stmt->fetch();
 		if (
 			$node instanceof Node\Stmt\Expression
 			&& $node->expr instanceof Node\Expr\Assign
@@ -923,6 +924,26 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 						return $result;
 					}
+				}
+			}
+		}
+
+		// Case 2: Return statement - /** @var ... */ return $stmt->fetch();
+		if ($node instanceof Node\Stmt\Return_ && $node->expr instanceof MethodCall) {
+			$methodCall = $node->expr;
+			if ($methodCall->name instanceof Node\Identifier) {
+				$methodName = $methodCall->name->toString();
+				if (in_array($methodName, ['fetch', 'fetchObject', 'fetchAll'], true)) {
+					$result = ['method' => $methodName];
+					// Extract the variable being called on
+					if (
+						$methodCall->var instanceof Variable
+						&& is_string($methodCall->var->name)
+					) {
+						$result['var'] = $methodCall->var->name;
+					}
+
+					return $result;
 				}
 			}
 		}
