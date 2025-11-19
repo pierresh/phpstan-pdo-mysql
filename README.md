@@ -42,17 +42,6 @@ $stmt = $db->query("SELECT * FROM");
 > [!CAUTION]
 > SQL syntax error in query(): Expected token NAME ~RESERVED, but end of query found instead.
 
-```php
-// ❌ Trailing comma in VALUES
-$stmt = $db->prepare("
-    INSERT INTO users (id, name, email)
-    VALUES (1, 'John', 'john@example.com',)
-");
-```
-
-> [!CAUTION]
-> SQL syntax error in prepare(): Expected token NAME|VALUE, but token SYMBOL with value ")" found instead.
-
 Works with both direct strings and variables:
 
 ```php

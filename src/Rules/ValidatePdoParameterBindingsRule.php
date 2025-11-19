@@ -80,7 +80,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @param array<string, array{placeholders: array<string>, line: int, sql: string}> $propertyPreparations
 	 * @param array<string, array{params: array<string>, locations: array<string, int>}> $propertyBindings
-	 * @param array<string, array<array{line: int, params: array<string>|null}>> $executeCalls
+	 * @param array<string, array<array{line: int, params: array<array{name: string, line: int}>|null}>> $executeCalls
 	 * @return array<\PHPStan\Rules\RuleError>
 	 */
 	private function validateAllPropertyPreparations(
@@ -108,7 +108,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @param array{placeholders: array<string>, line: int, sql: string} $info
 	 * @param array<string, array{params: array<string>, locations: array<string, int>}> $propertyBindings
-	 * @param array<string, array<array{line: int, params: array<string>|null}>> $executeCalls
+	 * @param array<string, array<array{line: int, params: array<array{name: string, line: int}>|null}>> $executeCalls
 	 * @return array<\PHPStan\Rules\RuleError>
 	 */
 	private function validateSinglePropertyPreparation(
@@ -141,7 +141,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	/**
 	 * Validate a single execute() call for a property
 	 *
-	 * @param array{line: int, params: array<string>|null} $execute
+	 * @param array{line: int, params: array<array{name: string, line: int}>|null} $execute
 	 * @param array<string> $placeholders
 	 * @param array<string, array{params: array<string>, locations: array<string, int>}> $propertyBindings
 	 * @return array<\PHPStan\Rules\RuleError>
@@ -175,7 +175,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 * Validate execute() call with array parameters
 	 *
 	 * @param array<string> $placeholders
-	 * @param array<string> $executeParams
+	 * @param array<array{name: string, line: int}> $executeParams
 	 * @return array<\PHPStan\Rules\RuleError>
 	 */
 	private function validateExecuteWithArray(
@@ -184,8 +184,17 @@ class ValidatePdoParameterBindingsRule implements Rule
 		int $executeLine,
 	): array {
 		$errors = [];
-		$missing = array_diff($placeholders, $executeParams);
-		$extra = array_diff($executeParams, $placeholders);
+
+		// Extract param names and create a map of name => line
+		$paramNames = [];
+		$paramLines = [];
+		foreach ($executeParams as $param) {
+			$paramNames[] = $param['name'];
+			$paramLines[$param['name']] = $param['line'];
+		}
+
+		$missing = array_diff($placeholders, $paramNames);
+		$extra = array_diff($paramNames, $placeholders);
 
 		foreach ($missing as $param) {
 			$errors[] = RuleErrorBuilder::message(sprintf(
@@ -202,7 +211,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 				'Parameter :%s in execute() is not used',
 				$param,
 			))
-				->line($executeLine)
+				->line($paramLines[$param]) // Use the actual parameter line, not execute line
 				->identifier('pdoSql.extraParameter')
 				->build();
 		}
@@ -374,7 +383,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	/**
 	 * Validate a single execute() call for a local variable
 	 *
-	 * @param array{line: int, params: array<string>|null} $executeCall
+	 * @param array{line: int, params: array<array{name: string, line: int}>|null} $executeCall
 	 * @param array<string> $placeholders
 	 * @param array<string> $boundParams
 	 * @return array<\PHPStan\Rules\RuleError>
@@ -693,7 +702,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	/**
 	 * Extract execute() call locations and their parameters
 	 *
-	 * @return array<string, array<array{line: int, params: array<string>|null}>> Property name => [execute calls with line and params]
+	 * @return array<string, array<array{line: int, params: array<array{name: string, line: int}>|null}>> Property name => [execute calls with line and params]
 	 */
 	private function extractExecuteLocations(Class_ $class): array
 	{
@@ -721,7 +730,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	/**
 	 * Recursively find all execute() calls on properties in a node
 	 *
-	 * @return array<array{property: string, line: int, params: array<string>|null}>
+	 * @return array<array{property: string, line: int, params: array<array{name: string, line: int}>|null}>
 	 */
 	private function findExecuteCallsInNode(Node $node): array
 	{
@@ -739,7 +748,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	/**
 	 * Extract execute call information if node is an execute() call
 	 *
-	 * @return array{property: string, line: int, params: array<string>|null}|null
+	 * @return array{property: string, line: int, params: array<array{name: string, line: int}>|null}|null
 	 */
 	private function extractExecuteCallIfPresent(Node $node): null|array
 	{
@@ -781,9 +790,9 @@ class ValidatePdoParameterBindingsRule implements Rule
 	}
 
 	/**
-	 * Extract parameters from execute() array argument
+	 * Extract parameters from execute() array argument with their line numbers
 	 *
-	 * @return array<string>|null
+	 * @return array<array{name: string, line: int}>|null
 	 */
 	private function extractExecuteArrayParams(MethodCall $methodCall): null|array
 	{
@@ -803,7 +812,10 @@ class ValidatePdoParameterBindingsRule implements Rule
 			}
 
 			if ($item->key instanceof String_) {
-				$params[] = ltrim($item->key->value, ':');
+				$params[] = [
+					'name' => ltrim($item->key->value, ':'),
+					'line' => $item->key->getStartLine(),
+				];
 			}
 		}
 
@@ -813,7 +825,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	/**
 	 * Find execute calls in all child nodes
 	 *
-	 * @return array<array{property: string, line: int, params: array<string>|null}>
+	 * @return array<array{property: string, line: int, params: array<array{name: string, line: int}>|null}>
 	 */
 	private function findExecuteCallsInChildNodes(Node $node): array
 	{
@@ -954,7 +966,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	/**
 	 * Extract execute() calls for a local variable
 	 *
-	 * @return array<array{line: int, params: array<string>|null}>
+	 * @return array<array{line: int, params: array<array{name: string, line: int}>|null}>
 	 */
 	private function extractLocalVariableExecuteCalls(
 		ClassMethod $classMethod,
@@ -990,25 +1002,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 					continue;
 				}
 
-				// Extract parameters if provided as array
-				$params = null;
-				if ($methodCall->getArgs() !== []) {
-					$firstArg = $methodCall->getArgs()[0]->value;
-					if ($firstArg instanceof Node\Expr\Array_) {
-						$params = [];
-						foreach ($firstArg->items as $item) {
-							// Skip null items (e.g., from trailing commas)
-							if (!$item instanceof Node\Expr\ArrayItem) {
-								continue;
-							}
-
-							if ($item->key instanceof String_) {
-								// Strip leading ':' to normalize parameter names
-								$params[] = ltrim($item->key->value, ':');
-							}
-						}
-					}
-				}
+				// Extract parameters with line numbers using shared method
+				$params = $this->extractExecuteArrayParams($methodCall);
 
 				$executeCalls[] = [
 					'line' => $stmt->getStartLine(),

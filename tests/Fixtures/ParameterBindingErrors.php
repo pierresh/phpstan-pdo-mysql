@@ -128,6 +128,17 @@ class ParameterBindingErrors
 		$stmt = $this->db->prepare('SELECT * FROM users WHERE name = :name');
 		$stmt->execute(['name' => 'John']);
 	}
+
+	public function extraParameterOnSpecificLine(): void
+	{
+		// Test that extra parameter errors are reported on the parameter's line
+		// not on the execute() line
+		$stmt = $this->db->prepare('SELECT * FROM users WHERE id = :id');
+		$stmt->execute([
+			'id' => 1,
+			'extra' => 'unused', // Error should be on THIS line (139)
+		]);
+	}
 }
 
 class PropertyBindingErrors
