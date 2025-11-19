@@ -285,9 +285,22 @@ class ValidatePdoParameterBindingsRule implements Rule
 		$errors = [];
 		$preparations = $this->extractLocalVariablePreparations($classMethod);
 
+		// Group preparations by variable name
+		$preparationsByVar = [];
 		foreach ($preparations as $preparation) {
-			$prepErrors = $this->validateSingleLocalVariablePreparation(
-				$preparation,
+			$varName = $preparation['var'];
+			if (!isset($preparationsByVar[$varName])) {
+				$preparationsByVar[$varName] = [];
+			}
+
+			$preparationsByVar[$varName][] = $preparation;
+		}
+
+		// Validate each variable's prepare/execute pairs
+		foreach ($preparationsByVar as $varName => $varPreparations) {
+			$prepErrors = $this->validateVariablePreparations(
+				$varName,
+				$varPreparations,
 				$classMethod,
 			);
 			$errors = array_merge($errors, $prepErrors);
@@ -297,18 +310,20 @@ class ValidatePdoParameterBindingsRule implements Rule
 	}
 
 	/**
-	 * Validate a single local variable preparation
+	 * Validate all preparations for a single variable
+	 * Matches each execute() to the most recent prepare() before it
 	 *
-	 * @param array{var: string, sql: string, line: int, placeholders: array<string>} $preparation
+	 * @param array<array{var: string, sql: string, line: int, placeholders: array<string>}> $preparations
 	 * @return array<\PHPStan\Rules\RuleError>
 	 */
-	private function validateSingleLocalVariablePreparation(
-		array $preparation,
+	private function validateVariablePreparations(
+		string $varName,
+		array $preparations,
 		ClassMethod $classMethod,
 	): array {
-		$varName = $preparation['var'];
-		$placeholders = $preparation['placeholders'];
+		$errors = [];
 
+		// Get all execute calls for this variable
 		$executeCalls = $this->extractLocalVariableExecuteCalls(
 			$classMethod,
 			$varName,
@@ -318,34 +333,36 @@ class ValidatePdoParameterBindingsRule implements Rule
 			return [];
 		}
 
+		// Sort preparations by line number (should already be in order, but ensure it)
+		usort($preparations, fn($a, $b): int => $a['line'] <=> $b['line']);
+
+		// Get bindings for this variable
 		$boundParams = $this->extractLocalVariableBindings($classMethod, $varName);
 
-		return $this->validateAllLocalVariableExecuteCalls(
-			$executeCalls,
-			$placeholders,
-			$boundParams,
-		);
-	}
-
-	/**
-	 * Validate all execute() calls for a local variable
-	 *
-	 * @param array<array{line: int, params: array<string>|null}> $executeCalls
-	 * @param array<string> $placeholders
-	 * @param array<string> $boundParams
-	 * @return array<\PHPStan\Rules\RuleError>
-	 */
-	private function validateAllLocalVariableExecuteCalls(
-		array $executeCalls,
-		array $placeholders,
-		array $boundParams,
-	): array {
-		$errors = [];
-
+		// For each execute call, find the most recent prepare() before it
+		$prepCount = count($preparations);
 		foreach ($executeCalls as $executeCall) {
+			$executeLine = $executeCall['line'];
+
+			// Find the most recent prepare() that comes before this execute()
+			// Iterate backwards through sorted preparations (most efficient)
+			$matchingPreparation = null;
+			for ($i = $prepCount - 1; $i >= 0; $i--) {
+				if ($preparations[$i]['line'] < $executeLine) {
+					$matchingPreparation = $preparations[$i];
+					break;
+				}
+			}
+
+			// If no matching prepare found, skip validation
+			if ($matchingPreparation === null) {
+				continue;
+			}
+
+			// Validate this execute() against its matching prepare()
 			$executeErrors = $this->validateLocalVariableExecuteCall(
 				$executeCall,
-				$placeholders,
+				$matchingPreparation['placeholders'],
 				$boundParams,
 			);
 			$errors = array_merge($errors, $executeErrors);

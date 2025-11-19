@@ -118,6 +118,16 @@ class ParameterBindingErrors
 		$stmt->bindValue(':user_i', 1); // Typo: should be :user_id
 		$stmt->execute();
 	}
+
+	public function variableReuse(): void
+	{
+		// This should NOT report any error - variable is reused correctly
+		$stmt = $this->db->prepare('SELECT * FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		$stmt = $this->db->prepare('SELECT * FROM users WHERE name = :name');
+		$stmt->execute(['name' => 'John']);
+	}
 }
 
 class PropertyBindingErrors
