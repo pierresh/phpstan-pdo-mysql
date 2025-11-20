@@ -4,12 +4,13 @@ Static analysis rules for PHPStan that validate PDO/MySQL code for common errors
 
 ## Features
 
-This extension provides four powerful rules that work without requiring a database connection:
+This extension provides five powerful rules that work without requiring a database connection:
 
 1. **SQL Syntax Validation** - Detects MySQL syntax errors in `prepare()` and `query()` calls
 2. **Parameter Binding Validation** - Ensures PDO parameters match SQL placeholders
 3. **SELECT Column Validation** - Verifies SELECT columns match PHPDoc type annotations
 4. **Self-Reference Detection** - Catches self-reference conditions in JOIN and WHERE clauses
+5. **MySQL-Specific Syntax Detection** - Flags MySQL-specific functions that have portable alternatives (this rule is inactive by default because it is opiniated)
 
 All validation is performed statically by analyzing your code, so no database setup is needed.
 
@@ -381,6 +382,87 @@ $stmt = $db->prepare("
 
 The rule reports errors on the exact line where the self-reference occurs, making it easy to locate and fix the issue.
 
+### 5. MySQL-Specific Syntax Detection (Optional)
+
+> [!NOTE]
+> This rule is **not enabled by default**. Add it to your `phpstan.neon` to activate:
+> ```neon
+> services:
+>     -
+>         class: Pierresh\PhpStanPdoMysql\Rules\DetectMySqlSpecificSyntaxRule
+>         tags:
+>             - phpstan.rules.rule
+> ```
+
+Detects MySQL-specific SQL syntax that has portable alternatives. This helps maintain database-agnostic code for future migrations to PostgreSQL, SQL Server, or other databases.
+
+```php
+// ❌ IFNULL is MySQL-specific
+$stmt = $db->prepare("SELECT IFNULL(name, 'Unknown') FROM users");
+```
+
+> [!CAUTION]
+> Use COALESCE() instead of IFNULL() for database portability
+
+```php
+// ❌ IF() is MySQL-specific
+$stmt = $db->prepare("SELECT IF(status = 1, 'Active', 'Inactive') FROM users");
+```
+
+> [!CAUTION]
+> Use CASE WHEN instead of IF() for database portability
+
+```php
+// ✅ COALESCE is portable (works in MySQL, PostgreSQL, SQL Server)
+$stmt = $db->prepare("SELECT COALESCE(name, 'Unknown') FROM users");
+
+// ✅ CASE WHEN is portable
+$stmt = $db->prepare("SELECT CASE WHEN status = 1 THEN 'Active' ELSE 'Inactive' END FROM users");
+```
+
+```php
+// ❌ NOW() is MySQL-specific
+$stmt = $db->prepare("SELECT * FROM users WHERE created_at > NOW()");
+```
+
+> [!CAUTION]
+> Bind current datetime to a PHP variable instead of NOW() for database portability
+
+```php
+// ❌ CURDATE() is MySQL-specific
+$stmt = $db->prepare("SELECT * FROM users WHERE birth_date = CURDATE()");
+```
+
+> [!CAUTION]
+> Bind current date to a PHP variable instead of CURDATE() for database portability
+
+```php
+// ❌ LIMIT offset, count is MySQL-specific
+$stmt = $db->prepare("SELECT * FROM users LIMIT 10, 5");
+```
+
+> [!CAUTION]
+> Use LIMIT count OFFSET offset instead of LIMIT offset, count for database portability
+
+```php
+// ✅ Bind PHP datetime variables
+$stmt = $db->prepare("SELECT * FROM users WHERE created_at > :now");
+$stmt->execute(['now' => (new \DateTime())->format('Y-m-d H:i:s')]);
+
+$stmt = $db->prepare("SELECT * FROM users WHERE birth_date = :today");
+$stmt->execute(['today' => (new \DateTime())->format('Y-m-d')]);
+
+// ✅ LIMIT count OFFSET offset is portable
+$stmt = $db->prepare("SELECT * FROM users LIMIT 5 OFFSET 10");
+```
+
+Currently detects:
+- `IFNULL()` → Use `COALESCE()`
+- `IF()` → Use `CASE WHEN`
+- `NOW()` → Bind PHP datetime variable
+- `CURDATE()` → Bind PHP date variable
+- `LIMIT offset, count` → Use `LIMIT count OFFSET offset`
+
 ## Requirements
 
 - PHP 8.1+
@@ -437,6 +519,7 @@ These rules are designed to be fast:
 | `pdoSql.fetchTypeMismatch` | SELECT Column Validation | Fetch method doesn't match PHPDoc type structure |
 | `pdoSql.missingFalseType` | SELECT Column Validation | Missing `\|false` union type for `fetch()`/`fetchObject()` |
 | `pdoSql.selfReferenceCondition` | Self-Reference Detection | Self-referencing condition in JOIN or WHERE clause |
+| `pdoSql.mySqlSpecific` | MySQL-Specific Syntax | MySQL-specific function with portable alternative |
 
 ### Ignoring Specific Errors
 
@@ -462,6 +545,9 @@ parameters:
 
         # Ignore all self-reference detection errors
         - identifier: pdoSql.selfReferenceCondition
+
+        # Ignore all MySQL-specific syntax errors
+        - identifier: pdoSql.mySqlSpecific
 ```
 
 You can also ignore errors by path or message pattern:

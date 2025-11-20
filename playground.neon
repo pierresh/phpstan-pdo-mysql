@@ -1,12 +1,6 @@
 includes:
-	- extension.neon
+    - extension.neon
 
-parameters:
-	level: max
-	paths:
-		- src
-		- tests
-		- playground
 services:
     -
         class: Pierresh\PhpStanPdoMysql\Rules\DetectMySqlSpecificSyntaxRule

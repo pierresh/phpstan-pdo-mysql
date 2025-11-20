@@ -23,6 +23,8 @@ src/
     ValidatePdoSqlSyntaxRule.php      # Rule 1: Validates MySQL syntax
     ValidatePdoParameterBindingsRule.php  # Rule 2: Validates PDO parameter bindings
     ValidateSelectColumnsMatchPhpDocRule.php  # Rule 3: Validates SELECT columns vs PHPDoc
+    DetectSelfReferenceConditionsRule.php  # Rule 4: Detects self-reference conditions
+    DetectMySqlSpecificSyntaxRule.php  # Rule 5: Detects MySQL-specific syntax
   SqlLinter/                       # SQL parser adapters
     SqlLinterInterface.php            # Interface for SQL linter adapters
     SqlFtwAdapter.php                 # SQLFTW implementation
@@ -33,17 +35,19 @@ tests/                               # PHPUnit tests
     ValidatePdoParameterBindingsRuleTest.php
     ValidateSelectColumnsMatchPhpDocRuleTest.php
     DetectSelfReferenceConditionsRuleTest.php
+    DetectMySqlSpecificSyntaxRuleTest.php
   Fixtures/                          # Test fixture files with intentional errors
     SqlSyntaxErrors.php
     ParameterBindingErrors.php
     SelectColumnErrors.php
     SelfReferenceErrors.php
+    MySqlSpecificSyntaxErrors.php
 
 extension.neon                       # PHPStan configuration that registers the rules
 composer.json                        # Package definition
 ```
 
-## The Four Rules
+## The Five Rules
 
 ### 1. ValidatePdoSqlSyntaxRule
 - **Purpose**: Catches MySQL syntax errors in `prepare()` and `query()` calls
@@ -71,6 +75,18 @@ composer.json                        # Package definition
 - **Detects**: Self-references in both JOIN ON clauses and WHERE conditions
 - **Supports**: SELECT queries and INSERT...SELECT queries
 - **Key feature**: Preprocesses PDO placeholders (`:name`) before parsing for structure analysis
+
+### 5. DetectMySqlSpecificSyntaxRule (Optional)
+- **Purpose**: Flags MySQL-specific SQL syntax that has portable alternatives
+- **Status**: **Not enabled by default** - users must add to their phpstan.neon
+- **Detects**:
+  - `IFNULL()` → suggests `COALESCE()`
+  - `IF()` → suggests `CASE WHEN`
+  - `NOW()` → suggests `CURRENT_TIMESTAMP`
+  - `CURDATE()` → suggests `CURRENT_DATE`
+  - `LIMIT offset, count` → suggests `LIMIT count OFFSET offset`
+- **Use case**: Helps maintain database-agnostic code for future migrations
+- **Key feature**: Simple regex-based detection with helpful suggestions
 
 ## Common Patterns
 
