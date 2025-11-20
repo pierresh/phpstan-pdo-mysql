@@ -53,11 +53,8 @@ class SqlFtwAdapter implements SqlLinterInterface
 
 		// Temporarily replace PDO-style placeholders (:param) with valid literals
 		// to avoid syntax errors from the parser
-		$sanitizedSql = preg_replace(
-			'/:([a-zA-Z_]\w*)/',
-			"'__PLACEHOLDER__'",
-			$sqlQuery,
-		);
+		// PDO allows placeholders starting with digits (e.g., :5min_ago)
+		$sanitizedSql = preg_replace('/:(\w+)/', "'__PLACEHOLDER__'", $sqlQuery);
 
 		return $parser->parse($sanitizedSql ?? $sqlQuery);
 	}

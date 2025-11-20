@@ -861,7 +861,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 		$placeholders = [];
 
 		// Match :placeholder_name pattern
-		$matchCount = preg_match_all('/:([a-zA-Z_]\w*)/', $sql, $matches);
+		// PDO allows placeholders starting with digits (e.g., :5min_ago)
+		$matchCount = preg_match_all('/:(\w+)/', $sql, $matches);
 		if ($matchCount !== false && $matchCount > 0) {
 			$placeholders = array_unique($matches[1]);
 		}

@@ -654,7 +654,9 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		$propertiesUsed = $this->extractPropertiesUsedForFetch($classMethod);
 		foreach ($propertiesUsed as $propertyUsed) {
 			if (isset($propertyPreparations[$propertyUsed])) {
-				$sqlQueries[] = $propertyPreparations[$propertyUsed];
+				$prep = $propertyPreparations[$propertyUsed];
+				$prep['var'] = $propertyUsed; // Add property name for matching
+				$sqlQueries[] = $prep;
 			}
 		}
 
@@ -915,11 +917,9 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					if (in_array($methodName, ['fetch', 'fetchObject', 'fetchAll'], true)) {
 						$result = ['method' => $methodName];
 						// Extract the variable being called on
-						if (
-							$methodCall->var instanceof Variable
-							&& is_string($methodCall->var->name)
-						) {
-							$result['var'] = $methodCall->var->name;
+						$varName = $this->extractFetchTarget($methodCall);
+						if ($varName !== null) {
+							$result['var'] = $varName;
 						}
 
 						return $result;
@@ -936,11 +936,9 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				if (in_array($methodName, ['fetch', 'fetchObject', 'fetchAll'], true)) {
 					$result = ['method' => $methodName];
 					// Extract the variable being called on
-					if (
-						$methodCall->var instanceof Variable
-						&& is_string($methodCall->var->name)
-					) {
-						$result['var'] = $methodCall->var->name;
+					$varName = $this->extractFetchTarget($methodCall);
+					if ($varName !== null) {
+						$result['var'] = $varName;
 					}
 
 					return $result;
@@ -949,6 +947,35 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		}
 
 		return [];
+	}
+
+	/**
+	 * Extract the target of a fetch call (variable name or property name)
+	 * Handles both $stmt->fetch() and $this->property->fetch()
+	 */
+	private function extractFetchTarget(MethodCall $methodCall): null|string
+	{
+		// Case 1: Simple variable - $stmt->fetch()
+		if (
+			$methodCall->var instanceof Variable
+			&& is_string($methodCall->var->name)
+		) {
+			return $methodCall->var->name;
+		}
+
+		// Case 2: Property fetch - $this->property->fetch()
+		if ($methodCall->var instanceof PropertyFetch) {
+			$propertyFetch = $methodCall->var;
+			if (
+				$propertyFetch->var instanceof Variable
+				&& $propertyFetch->var->name === 'this'
+				&& $propertyFetch->name instanceof Node\Identifier
+			) {
+				return '$this->' . $propertyFetch->name->toString();
+			}
+		}
+
+		return null;
 	}
 
 	/**
