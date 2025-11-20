@@ -262,10 +262,11 @@ class DetectSelfReferenceConditionsRule implements Rule
 	{
 		$errors = [];
 
-		// Reset pattern occurrences, cache, and alias map for this SQL query
+		// Reset pattern occurrences, cache, and alias maps for this SQL query
 		$this->patternOccurrences = [];
 		$this->patternLineCache = [];
 		$this->aliasMap = [];
+		$this->isAlias = [];
 
 		// Skip if SQLFTW is not available
 		if (!class_exists(SqlFtwParser::class)) {
@@ -431,6 +432,12 @@ class DetectSelfReferenceConditionsRule implements Rule
 	private array $aliasMap = [];
 
 	/**
+	 * Set of actual aliases (not table names mapped to themselves)
+	 * @var array<string, bool>
+	 */
+	private array $isAlias = [];
+
+	/**
 	 * Build a map of table aliases from the FROM clause
 	 * Recursively processes JOINs to collect all aliases
 	 */
@@ -444,6 +451,7 @@ class DetectSelfReferenceConditionsRule implements Rule
 			if ($alias !== null) {
 				// Store alias => table mapping
 				$this->aliasMap[$alias] = $tableName;
+				$this->isAlias[$alias] = true;
 			}
 
 			// Also map table name to itself for consistent resolution
@@ -455,16 +463,6 @@ class DetectSelfReferenceConditionsRule implements Rule
 			$this->buildAliasMap($tableRef->getLeft());
 			$this->buildAliasMap($tableRef->getRight());
 		}
-	}
-
-	/**
-	 * Resolve a table reference to its base table name
-	 * If it's an alias, return the actual table name
-	 * Otherwise, return the original name
-	 */
-	private function resolveTableName(string $tableOrAlias): string
-	{
-		return $this->aliasMap[$tableOrAlias] ?? $tableOrAlias;
 	}
 
 	/**
@@ -504,15 +502,31 @@ class DetectSelfReferenceConditionsRule implements Rule
 		$rightTable = $rightParts[0];
 		$rightColumn = $rightParts[1];
 
-		// Resolve aliases to actual table names
-		$resolvedLeftTable = $this->resolveTableName($leftTable);
-		$resolvedRightTable = $this->resolveTableName($rightTable);
+		// Only flag as self-reference if columns match
+		if ($leftColumn !== $rightColumn) {
+			return null;
+		}
 
-		// Check if both sides reference the same table.column (after alias resolution)
-		if (
-			$resolvedLeftTable === $resolvedRightTable
-			&& $leftColumn === $rightColumn
-		) {
+		// Case 1: Exact same reference (p.id = p.id)
+		$isSameReference = $leftTable === $rightTable;
+
+		// Case 2: One is alias, one is table name for same table (p.id = products.id)
+		// This is different from two different aliases for the same table (p1.id = p2.id)
+		$leftIsAlias = isset($this->isAlias[$leftTable]);
+		$rightIsAlias = isset($this->isAlias[$rightTable]);
+		$resolvedLeft = $this->aliasMap[$leftTable] ?? $leftTable;
+		$resolvedRight = $this->aliasMap[$rightTable] ?? $rightTable;
+
+		// If both are aliases for the same table, that's a valid self-join pattern
+		$bothAreAliases = $leftIsAlias && $rightIsAlias;
+
+		// Flag as error if:
+		// - Same exact reference, OR
+		// - Same resolved table but NOT both are different aliases (one is alias, one is table name)
+		$isError =
+			$isSameReference || $resolvedLeft === $resolvedRight && !$bothAreAliases;
+
+		if ($isError) {
 			// Track occurrence of this specific pattern
 			$pattern = sprintf('%s = %s', $leftFullName, $rightFullName);
 			if (!isset($this->patternOccurrences[$pattern])) {
