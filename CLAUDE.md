@@ -76,9 +76,8 @@ composer.json                        # Package definition
 - **Supports**: SELECT queries and INSERT...SELECT queries
 - **Key feature**: Preprocesses PDO placeholders (`:name`) before parsing for structure analysis
 
-### 5. DetectMySqlSpecificSyntaxRule (Optional)
-- **Purpose**: Flags MySQL-specific SQL syntax that has portable alternatives
-- **Status**: **Not enabled by default** - users must add to their phpstan.neon
+### 5. DetectMySqlSpecificSyntaxRule
+- **Purpose**: Flags MySQL-specific SQL syntax that has portable ANSI alternatives
 - **Detects**:
   - `IFNULL()` → suggests `COALESCE()`
   - `IF()` → suggests `CASE WHEN`

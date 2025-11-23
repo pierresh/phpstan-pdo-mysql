@@ -10,7 +10,7 @@ This extension provides five powerful rules that work without requiring a databa
 2. **Parameter Binding Validation** - Ensures PDO parameters match SQL placeholders
 3. **SELECT Column Validation** - Verifies SELECT columns match PHPDoc type annotations
 4. **Self-Reference Detection** - Catches self-reference conditions in JOIN and WHERE clauses
-5. **MySQL-Specific Syntax Detection** - Flags MySQL-specific functions that have portable alternatives (this rule is inactive by default because it is opiniated)
+5. **MySQL-Specific Syntax Detection** - Flags MySQL-specific functions that have portable ANSI alternatives
 
 All validation is performed statically by analyzing your code, so no database setup is needed.
 
@@ -382,19 +382,9 @@ $stmt = $db->prepare("
 
 The rule reports errors on the exact line where the self-reference occurs, making it easy to locate and fix the issue.
 
-### 5. MySQL-Specific Syntax Detection (Optional)
+### 5. MySQL-Specific Syntax Detection
 
-> [!NOTE]
-> This rule is **not enabled by default**. Add it to your `phpstan.neon` to activate:
-> ```neon
-> services:
->     -
->         class: Pierresh\PhpStanPdoMysql\Rules\DetectMySqlSpecificSyntaxRule
->         tags:
->             - phpstan.rules.rule
-> ```
-
-Detects MySQL-specific SQL syntax that has portable alternatives. This helps maintain database-agnostic code for future migrations to PostgreSQL, SQL Server, or other databases.
+Detects MySQL-specific SQL syntax that has portable ANSI alternatives. This helps maintain database-agnostic code for future migrations to PostgreSQL, SQL Server, or other databases.
 
 ```php
 // ❌ IFNULL is MySQL-specific

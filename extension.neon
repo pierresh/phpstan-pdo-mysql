@@ -18,3 +18,7 @@ services:
         class: Pierresh\PhpStanPdoMysql\Rules\DetectSelfReferenceConditionsRule
         tags:
             - phpstan.rules.rule
+    -
+        class: Pierresh\PhpStanPdoMysql\Rules\DetectMySqlSpecificSyntaxRule
+        tags:
+            - phpstan.rules.rule
