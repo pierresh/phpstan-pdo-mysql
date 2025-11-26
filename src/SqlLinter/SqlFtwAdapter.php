@@ -54,9 +54,84 @@ class SqlFtwAdapter implements SqlLinterInterface
 		// Temporarily replace PDO-style placeholders (:param) with valid literals
 		// to avoid syntax errors from the parser
 		// PDO allows placeholders starting with digits (e.g., :5min_ago)
-		$sanitizedSql = preg_replace('/:(\w+)/', "'__PLACEHOLDER__'", $sqlQuery);
+		// Important: Skip placeholders inside quoted strings
+		$sanitizedSql = $this->replacePlaceholdersOutsideQuotes($sqlQuery);
 
-		return $parser->parse($sanitizedSql ?? $sqlQuery);
+		return $parser->parse($sanitizedSql);
+	}
+
+	/**
+	 * Replace PDO placeholders with literals, but only outside of quoted strings
+	 */
+	private function replacePlaceholdersOutsideQuotes(string $sql): string
+	{
+		$result = '';
+		$length = strlen($sql);
+		$i = 0;
+		$inSingleQuote = false;
+		$inDoubleQuote = false;
+
+		while ($i < $length) {
+			$char = $sql[$i];
+
+			// Handle single quotes
+			if ($char === "'" && !$inDoubleQuote) {
+				$result .= $char;
+				$i++;
+				$inSingleQuote = !$inSingleQuote;
+				continue;
+			}
+
+			// Handle double quotes
+			if ($char === '"' && !$inSingleQuote) {
+				$result .= $char;
+				$i++;
+				$inDoubleQuote = !$inDoubleQuote;
+				continue;
+			}
+
+			// Handle backslash escaping inside quotes
+			if (
+				($inSingleQuote || $inDoubleQuote)
+				&& $char === '\\'
+				&& ($i + 1) < $length
+			) {
+				// Skip escaped character
+				$result .= $char . $sql[$i + 1];
+				$i += 2;
+				continue;
+			}
+
+			// Check for placeholder pattern (:param) outside quotes
+			if (!$inSingleQuote && !$inDoubleQuote && $char === ':') {
+				// Manually match :placeholder pattern (word characters: a-zA-Z0-9_)
+				// to avoid expensive substr() allocation
+				$placeholderLength = 1; // Start at 1 for the ':'
+				while (($i + $placeholderLength) < $length) {
+					$nextChar = $sql[$i + $placeholderLength];
+					// Check if character is alphanumeric or underscore (equivalent to \w)
+					if (!ctype_alnum($nextChar) && $nextChar !== '_') {
+						break;
+					}
+
+					$placeholderLength++;
+				}
+
+				// If we found at least one word character after ':', it's a placeholder
+				if ($placeholderLength > 1) {
+					// Replace with literal
+					$result .= "'__PLACEHOLDER__'";
+					$i += $placeholderLength;
+					continue;
+				}
+			}
+
+			// Regular character
+			$result .= $char;
+			$i++;
+		}
+
+		return $result;
 	}
 
 	/**

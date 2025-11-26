@@ -50,4 +50,20 @@ class SqlSyntaxErrors
             FROM users
             WHERE'); // Incomplete WHERE clause
 	}
+
+	public function colonInStringLiteral(): void
+	{
+		// This should NOT report any error - colon in string literal is valid
+		$stmt = $this->db->prepare(
+			"INSERT INTO test (id, added_time) VALUES (1, '2:1')",
+		);
+	}
+
+	public function colonInDoubleQuotedString(): void
+	{
+		// This should NOT report any error - colon in double-quoted string is valid
+		$stmt = $this->db->prepare(
+			'INSERT INTO test (id, time_format) VALUES (1, "12:30:45")',
+		);
+	}
 }
