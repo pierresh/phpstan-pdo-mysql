@@ -116,24 +116,24 @@ class ValidateSelectColumnsMatchPhpDocRuleTest extends RuleTestCase
 				344,
 			],
 			[
-				'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 353) has "nam" - possible typo?',
-				357,
+				'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 369) has "nam" - possible typo?',
+				373,
 			],
 			[
-				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 390)',
-				395,
+				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 406)',
+				411,
 			],
 			[
-				'Missing |false in @var type: fetchObject() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 414)',
-				417,
+				'Missing |false in @var type: fetchObject() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 430)',
+				433,
 			],
 			[
-				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 434)',
-				437,
+				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 450)',
+				453,
 			],
 			[
-				'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 434) has "nam" - possible typo?',
-				437,
+				'SELECT column mismatch: PHPDoc expects property "name" but SELECT (line 450) has "nam" - possible typo?',
+				453,
 			],
 		]);
 	}

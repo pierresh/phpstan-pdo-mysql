@@ -277,11 +277,15 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * Check if the code has false-handling patterns in the method
 	 * Optimized single-pass detection for:
 	 * - rowCount() checks that throw/return before fetch
+	 * - rowCount variables checked in if conditions with throw/return
 	 * - === false, !== false, or !$var checks after fetch
 	 */
 	private function hasFalseHandlingInMethod(ClassMethod $classMethod): bool
 	{
 		$statements = $classMethod->getStmts() ?? [];
+
+		// First pass: collect rowCount variable assignments
+		$rowCountVariables = $this->extractRowCountVariableAssignments($statements);
 
 		// Single pass through statements - check both patterns at once
 		foreach ($statements as $statement) {
@@ -289,6 +293,17 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			if ($statement instanceof Node\Stmt\If_) {
 				// Check for rowCount() with throw/return (most specific check first)
 				if ($this->isRowCountCheckWithThrowOrReturn($statement)) {
+					return true;
+				}
+
+				// Check for rowCount variable used in condition with throw/return
+				if (
+					$rowCountVariables !== []
+					&& $this->isRowCountVariableCheckWithThrowOrReturn(
+						$statement,
+						$rowCountVariables,
+					)
+				) {
 					return true;
 				}
 
@@ -302,6 +317,126 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			if (
 				$statement instanceof Node\Stmt\If_
 				&& $statement->cond instanceof Node\Expr\BooleanNot
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Extract variables assigned from rowCount() calls
+	 *
+	 * @param array<Node\Stmt> $statements
+	 * @return array<string> Variable names like 'rowCount'
+	 */
+	private function extractRowCountVariableAssignments(array $statements): array
+	{
+		$variables = [];
+
+		foreach ($statements as $statement) {
+			if (!$statement instanceof Node\Stmt\Expression) {
+				continue;
+			}
+
+			if (!$statement->expr instanceof Node\Expr\Assign) {
+				continue;
+			}
+
+			$assign = $statement->expr;
+
+			// Check if left side is a simple variable
+			if (!$assign->var instanceof Variable) {
+				continue;
+			}
+
+			if (!is_string($assign->var->name)) {
+				continue;
+			}
+
+			// Check if right side is a rowCount() call
+			if (!$this->isRowCountMethodCall($assign->expr)) {
+				continue;
+			}
+
+			$variables[] = $assign->var->name;
+		}
+
+		return $variables;
+	}
+
+	/**
+	 * Check if expression is a rowCount() method call
+	 */
+	private function isRowCountMethodCall(Node\Expr $expr): bool
+	{
+		if (!$expr instanceof MethodCall) {
+			return false;
+		}
+
+		if (!$expr->name instanceof Node\Identifier) {
+			return false;
+		}
+
+		return $expr->name->toString() === 'rowCount';
+	}
+
+	/**
+	 * Check if an if statement uses a rowCount variable with throw/return
+	 *
+	 * @param array<string> $rowCountVariables Variable names that hold rowCount() results
+	 */
+	private function isRowCountVariableCheckWithThrowOrReturn(
+		Node\Stmt\If_ $if,
+		array $rowCountVariables,
+	): bool {
+		// Check if condition uses any of the rowCount variables
+		if (!$this->conditionUsesRowCountVariable($if->cond, $rowCountVariables)) {
+			return false;
+		}
+
+		// Check if body has throw or return (only check top-level statements)
+		foreach ($if->stmts as $stmt) {
+			if (
+				$stmt instanceof Node\Stmt\Throw_
+				|| $stmt instanceof Node\Stmt\Return_
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Check if condition uses any of the rowCount variables
+	 *
+	 * @param array<string> $rowCountVariables
+	 */
+	private function conditionUsesRowCountVariable(
+		Node\Expr $expr,
+		array $rowCountVariables,
+	): bool {
+		// Direct variable: $rowCount
+		if ($expr instanceof Variable && is_string($expr->name)) {
+			return in_array($expr->name, $rowCountVariables, true);
+		}
+
+		// Binary operation: $rowCount === 0
+		if ($expr instanceof Node\Expr\BinaryOp) {
+			if (
+				$expr->left instanceof Variable
+				&& is_string($expr->left->name)
+				&& in_array($expr->left->name, $rowCountVariables, true)
+			) {
+				return true;
+			}
+
+			if (
+				$expr->right instanceof Variable
+				&& is_string($expr->right->name)
+				&& in_array($expr->right->name, $rowCountVariables, true)
 			) {
 				return true;
 			}

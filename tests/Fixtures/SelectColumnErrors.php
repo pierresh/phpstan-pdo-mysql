@@ -345,6 +345,22 @@ class SelectColumnErrors
 		$user = $stmt->fetch();
 	}
 
+	public function fetchWithRowCountVariableCheck(): void
+	{
+		// fetch() without |false but rowCount assigned to variable and checked - should NOT error
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		$rowCount = $stmt->rowCount();
+
+		if ($rowCount === 0) {
+			throw new \RuntimeException('User not found');
+		}
+
+		/** @var object{id: int, name: string} */
+		$user = $stmt->fetch();
+	}
+
 	public function whileLoopWithColumnMismatch(): void
 	{
 		// while loop with @var inside body
