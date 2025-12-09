@@ -14,6 +14,9 @@ This extension provides five powerful rules that work without requiring a databa
 
 All validation is performed statically by analyzing your code, so no database setup is needed.
 
+**Developer Tool:**
+- **`ddt()` Helper Function** - Generates PHPStan type definitions from runtime values for easy copy-paste into your code
+
 ## Installation
 
 ```bash
@@ -559,6 +562,111 @@ parameters:
 ## Playground
 
 Want to try the extension quickly? Open `playground/example.php` in your IDE with a PHPStan plugin installed. You'll see errors highlighted in real-time as you edit the code.
+
+## Developer Tools
+
+### `ddt()` - Dump Debug Type
+
+The `ddt()` helper function inspects PHP values at runtime and generates PHPStan type definitions. This is useful for quickly creating `@phpstan-type` annotations from real data in tests.
+
+**Usage in PHPUnit tests:**
+
+```php
+use PHPUnit\Framework\TestCase;
+
+class MyTest extends TestCase
+{
+    public function testExample(): void
+    {
+        $row = $stmt->fetch(); // Fetch data from database
+        ddt($row); // Dumps type and stops execution
+    }
+}
+```
+
+**Terminal output:**
+
+```php
+/**
+ * @phpstan-type Item object{
+ *  id: int,
+ *  name: string,
+ *  status: int,
+ * }
+ */
+```
+
+Simply copy the output and paste it into your code as a type annotation!
+
+**Supported types:**
+
+- **Objects** (stdClass and class instances): Shows public properties as `object{...}` shape
+- **Associative arrays**: Formatted as `array{key: type, ...}`
+- **Sequential arrays**: Formatted as `array<int, type>`
+- **Nested structures**: Handles nesting up to 5 levels deep
+- **All scalar types**: int, float, string, bool, null
+
+**Type mapping:**
+
+| PHP Runtime Type | PHPStan Output |
+|-----------------|----------------|
+| `integer` | `int` |
+| `double` | `float` |
+| `string` | `string` |
+| `boolean` | `bool` |
+| `NULL` | `null` |
+| `array` (associative) | `array{key: type, ...}` |
+| `array` (sequential) | `array<int, type>` |
+| `object` | `object{prop: type, ...}` |
+
+**Examples:**
+
+```php
+// Nested objects
+$workflow = new stdClass();
+$workflow->id = 1;
+$workflow->metadata = new stdClass();
+$workflow->metadata->created_at = '2024-01-01';
+
+ddt($workflow);
+
+// Output:
+/**
+ * @phpstan-type Item object{
+ *  id: int,
+ *  metadata: object{
+ *    created_at: string,
+ *  },
+ * }
+ */
+```
+
+```php
+// Associative array
+$config = ['database' => 'mysql', 'port' => 3306];
+ddt($config);
+
+// Output:
+/**
+ * @phpstan-type Item array{
+ *  database: string,
+ *  port: int,
+ * }
+ */
+```
+
+```php
+// Sequential array
+$ids = [1, 2, 3, 4, 5];
+ddt($ids);
+
+// Output:
+/**
+ * @phpstan-type Item array<int, int>
+ */
+```
+
+**Note:** The function calls `exit(0)` after dumping (like `dd()`), so execution stops. This is intentional for use in debugging/testing workflows.
 
 ## Development
 
