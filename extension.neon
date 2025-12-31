@@ -22,3 +22,7 @@ services:
         class: Pierresh\PhpStanPdoMysql\Rules\DetectMySqlSpecificSyntaxRule
         tags:
             - phpstan.rules.rule
+    -
+        class: Pierresh\PhpStanPdoMysql\Rules\DetectInvalidTableReferencesRule
+        tags:
+            - phpstan.rules.rule

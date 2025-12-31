@@ -36,7 +36,8 @@ if (!function_exists('ddt')) {
 		// Format multi-line type definitions with proper PHPDoc leading asterisks
 		$lines = explode("\n", $typeDefinition);
 		$formattedType = $lines[0];
-		for ($i = 1; $i < count($lines); $i++) {
+		$counter = count($lines);
+		for ($i = 1; $i < $counter; $i++) {
 			$formattedType .= "\n * " . $lines[$i];
 		}
 

@@ -4,13 +4,14 @@ Static analysis rules for PHPStan that validate PDO/MySQL code for common errors
 
 ## Features
 
-This extension provides five powerful rules that work without requiring a database connection:
+This extension provides six powerful rules that work without requiring a database connection:
 
 1. **SQL Syntax Validation** - Detects MySQL syntax errors in `prepare()` and `query()` calls
 2. **Parameter Binding Validation** - Ensures PDO parameters match SQL placeholders
 3. **SELECT Column Validation** - Verifies SELECT columns match PHPDoc type annotations
 4. **Self-Reference Detection** - Catches self-reference conditions in JOIN and WHERE clauses
-5. **MySQL-Specific Syntax Detection** - Flags MySQL-specific functions that have portable ANSI alternatives
+5. **Invalid Table Reference Detection** - Catches typos in table/alias names (e.g., `user.name` when table is `users`)
+6. **MySQL-Specific Syntax Detection** - Flags MySQL-specific functions that have portable ANSI alternatives
 
 All validation is performed statically by analyzing your code, so no database setup is needed.
 
@@ -385,7 +386,66 @@ $stmt = $db->prepare("
 
 The rule reports errors on the exact line where the self-reference occurs, making it easy to locate and fix the issue.
 
-### 5. MySQL-Specific Syntax Detection
+### 5. Invalid Table Reference Detection
+
+Detects typos in table and alias names used in qualified column references. Catches errors like using `user.name` when the table is `users`, or referencing a table that doesn't appear in FROM/JOIN clauses.
+
+```php
+// ❌ Table 'user' doesn't exist - should be 'users'
+$stmt = $db->prepare("SELECT user.name FROM users WHERE users.id = :id");
+```
+
+> [!CAUTION]
+> Invalid table reference 'user' - available tables/aliases: users
+
+```php
+// ❌ Wrong alias - using 'usr' but alias is 'u'
+$stmt = $db->prepare("SELECT usr.name FROM users AS u WHERE u.id = :id");
+```
+
+> [!CAUTION]
+> Invalid table reference 'usr' - available tables/aliases: u, users
+
+```php
+// ❌ Table 'orders' not in FROM or JOIN
+$stmt = $db->prepare("SELECT users.id, orders.total FROM users WHERE users.id = :id");
+```
+
+> [!CAUTION]
+> Invalid table reference 'orders' - available tables/aliases: users
+
+```php
+// ✅ Correct table name
+$stmt = $db->prepare("SELECT users.name FROM users WHERE users.id = :id");
+
+// ✅ Correct alias usage
+$stmt = $db->prepare("SELECT u.name FROM users AS u WHERE u.id = :id");
+
+// ✅ Both table name and alias can be used
+$stmt = $db->prepare("SELECT users.id, u.name FROM users AS u WHERE u.id = :id");
+
+// ✅ Multiple tables with JOIN
+$stmt = $db->prepare("
+    SELECT u.name, o.total
+    FROM users AS u
+    INNER JOIN orders AS o ON u.id = o.user_id
+    WHERE u.id = :id
+");
+```
+
+The rule validates:
+- Column references in SELECT clause
+- Column references in WHERE conditions
+- Column references in JOIN conditions
+- Column references in ORDER BY and GROUP BY clauses
+- Column references in HAVING clause
+
+This catches common typos that would only be discovered at runtime, like:
+- Singular/plural mistakes (`user` vs `users`)
+- Typos in alias names (`usr` vs `usrs`)
+- Wrong table references in complex JOINs
+
+### 6. MySQL-Specific Syntax Detection
 
 Detects MySQL-specific SQL syntax that has portable ANSI alternatives. This helps maintain database-agnostic code for future migrations to PostgreSQL, SQL Server, or other databases.
 
@@ -512,6 +572,7 @@ These rules are designed to be fast:
 | `pdoSql.fetchTypeMismatch` | SELECT Column Validation | Fetch method doesn't match PHPDoc type structure |
 | `pdoSql.missingFalseType` | SELECT Column Validation | Missing `\|false` union type for `fetch()`/`fetchObject()` |
 | `pdoSql.selfReferenceCondition` | Self-Reference Detection | Self-referencing condition in JOIN or WHERE clause |
+| `pdoSql.invalidTableReference` | Invalid Table Reference Detection | Invalid table or alias name in qualified column reference |
 | `pdoSql.mySqlSpecific` | MySQL-Specific Syntax | MySQL-specific function with portable alternative |
 
 ### Ignoring Specific Errors
@@ -538,6 +599,9 @@ parameters:
 
         # Ignore all self-reference detection errors
         - identifier: pdoSql.selfReferenceCondition
+
+        # Ignore all invalid table reference detection errors
+        - identifier: pdoSql.invalidTableReference
 
         # Ignore all MySQL-specific syntax errors
         - identifier: pdoSql.mySqlSpecific
