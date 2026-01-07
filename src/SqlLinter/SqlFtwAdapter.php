@@ -119,8 +119,9 @@ class SqlFtwAdapter implements SqlLinterInterface
 
 				// If we found at least one word character after ':', it's a placeholder
 				if ($placeholderLength > 1) {
-					// Replace with literal
-					$result .= "'__PLACEHOLDER__'";
+					// Replace with integer literal to support LIMIT/OFFSET contexts
+					// MySQL auto-converts integers to strings when needed in string contexts
+					$result .= '1';
 					$i += $placeholderLength;
 					continue;
 				}
