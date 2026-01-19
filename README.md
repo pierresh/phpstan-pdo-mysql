@@ -15,8 +15,9 @@ This extension provides six powerful rules that work without requiring a databas
 
 All validation is performed statically by analyzing your code, so no database setup is needed.
 
-**Developer Tool:**
+**Developer Tools:**
 - **`ddt()` Helper Function** - Generates PHPStan type definitions from runtime values for easy copy-paste into your code
+- **`ddc()` Helper Function** - Generates PHP class definitions from objects for use with `PDO::fetchObject()`
 
 ## Installation
 
@@ -731,6 +732,75 @@ ddt($ids);
 ```
 
 **Note:** The function calls `exit(0)` after dumping (like `dd()`), so execution stops. This is intentional for use in debugging/testing workflows.
+
+### `ddc()` - Dump Debug Class
+
+The `ddc()` helper function inspects PHP objects at runtime and generates PHP class definitions. This is useful for creating view model classes compatible with `PDO::fetchObject()`.
+
+**Usage in PHPUnit tests:**
+
+```php
+use PHPUnit\Framework\TestCase;
+
+class MyTest extends TestCase
+{
+    public function testExample(): void
+    {
+        $row = $stmt->fetchObject(); // Fetch data from database
+        ddc($row); // Dumps class definition and stops execution
+    }
+}
+```
+
+**Terminal output:**
+
+```php
+class Item
+{
+    public int $id;
+    public string $name;
+    public string $email;
+    public ?string $phone;
+}
+```
+
+Simply copy the output, rename the class, and use it as your view model!
+
+**Example workflow:**
+
+```php
+// 1. First, discover the structure using ddc()
+$stmt = $db->query("SELECT id, name, email, phone FROM users WHERE id = 1");
+$row = $stmt->fetchObject();
+ddc($row);
+
+// 2. Create your view model class from the output
+class UserViewModel
+{
+    public int $id;
+    public string $name;
+    public string $email;
+    public ?string $phone;
+}
+
+// 3. Use it with PDO::fetchObject()
+$stmt = $db->query("SELECT id, name, email, phone FROM users WHERE id = 1");
+$user = $stmt->fetchObject(UserViewModel::class);
+```
+
+**Supported types:**
+
+| PHP Runtime Value | Generated Type |
+|------------------|----------------|
+| `integer` | `int` |
+| `double` | `float` |
+| `string` | `string` |
+| `boolean` | `bool` |
+| `NULL` | `mixed` |
+| `array` | `array` |
+| `object` | `object` |
+
+**Note:** Like `ddt()`, this function calls `exit(0)` after dumping.
 
 ## Development
 

@@ -238,3 +238,133 @@ if (!function_exists('detectObjectType')) {
 		);
 	}
 }
+
+if (!function_exists('ddc')) {
+	/**
+	 * Dump Debug Class - Inspect an object and output a PHP class definition
+	 *
+	 * This helper function inspects PHP objects at runtime and generates
+	 * a PHP class with public properties that can be used with PDO::fetchObject().
+	 *
+	 * Usage:
+	 * ```php
+	 * $row = $stmt->fetchObject();
+	 * ddc($row);
+	 * ```
+	 *
+	 * Output:
+	 * ```php
+	 * class Item
+	 * {
+	 *     public int $id;
+	 *     public string $name;
+	 *     public ?string $description;
+	 * }
+	 * ```
+	 *
+	 * @param mixed $value The object to inspect
+	 * @param bool $returnOnly For testing only - return string instead of exiting
+	 */
+	function ddc(mixed $value, bool $returnOnly = false): string
+	{
+		if (!is_object($value)) {
+			$output = '// ddc() expects an object, got ' . gettype($value);
+			if ($returnOnly) {
+				return $output;
+			}
+
+			echo $output . "\n";
+			exit(1);
+		}
+
+		$visitedObjects = [];
+		$properties = formatClassProperties($value, $visitedObjects);
+
+		$output = <<<PHP
+		class Item
+		{
+		{$properties}}
+
+		PHP;
+
+		if ($returnOnly) {
+			return $output;
+		}
+
+		echo $output . "\n";
+		exit(0);
+	}
+}
+
+if (!function_exists('detectPhpType')) {
+	/**
+	 * Detect the PHP type hint for a value
+	 *
+	 * @param mixed $value The value to inspect
+	 * @param int $depth Current recursion depth
+	 * @param array<int, int> $visitedObjects Track visited object IDs to prevent circular references
+	 * @return string PHP type hint syntax
+	 */
+	function detectPhpType(
+		mixed $value,
+		int $depth = 0,
+		array &$visitedObjects = [],
+	): string {
+		// Prevent infinite recursion
+		if ($depth > 5) {
+			return 'mixed';
+		}
+
+		return match (true) {
+			$value === null => 'mixed',
+			is_int($value) => 'int',
+			is_float($value) => 'float',
+			is_string($value) => 'string',
+			is_bool($value) => 'bool',
+			is_array($value) => 'array',
+			is_object($value) => 'object',
+			default => 'mixed',
+		};
+	}
+}
+
+if (!function_exists('formatClassProperties')) {
+	/**
+	 * Format object properties as PHP class property declarations
+	 *
+	 * @param object $object The object to inspect
+	 * @param array<int, int> $visitedObjects Track visited object IDs to prevent circular references
+	 * @return string PHP property declarations
+	 */
+	function formatClassProperties(object $object, array &$visitedObjects): string
+	{
+		// Check for circular references
+		$objectId = spl_object_id($object);
+		if (isset($visitedObjects[$objectId])) {
+			return '';
+		}
+
+		$visitedObjects[$objectId] = 1;
+
+		$properties = get_object_vars($object);
+
+		if ($properties === []) {
+			unset($visitedObjects[$objectId]);
+			return '';
+		}
+
+		$lines = [];
+		foreach ($properties as $name => $value) {
+			$type = detectPhpType($value, 0, $visitedObjects);
+
+			// Make nullable if value is null (we use mixed for null-only)
+			$lines[] = $type !== 'mixed'
+				? sprintf('    public %s $%s;', $type, $name)
+				: sprintf('    public mixed $%s;', $name);
+		}
+
+		unset($visitedObjects[$objectId]);
+
+		return implode("\n", $lines) . "\n";
+	}
+}
