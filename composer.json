@@ -37,7 +37,7 @@
     "scripts": {
         "test": "./vendor/bin/phpunit-watcher watch",
         "test:run": "./vendor/bin/phpunit",
-        "stan": "./vendor/bin/phpstan analyze src -c phpstan.neon --error-format=table --no-progress",
+        "stan": "./vendor/bin/phpstan analyze src -c phpstan.neon --error-format=table --no-progress --memory-limit=512M",
         "analyze": "./vendor/bin/phpstan analyze -c extension.neon --level=max ./src",
         "refactor": "./vendor/bin/rector process src tests",
         "refactor:dry": "./vendor/bin/rector process src tests --dry-run",

@@ -25,6 +25,8 @@ src/
     ValidateSelectColumnsMatchPhpDocRule.php  # Rule 3: Validates SELECT columns vs PHPDoc
     DetectSelfReferenceConditionsRule.php  # Rule 4: Detects self-reference conditions
     DetectMySqlSpecificSyntaxRule.php  # Rule 5: Detects MySQL-specific syntax
+    DetectInvalidTableReferencesRule.php  # Rule 6: Detects invalid table/alias references
+    DetectTautologicalConditionsRule.php  # Rule 7: Detects tautological conditions
   SqlLinter/                       # SQL parser adapters
     SqlLinterInterface.php            # Interface for SQL linter adapters
     SqlFtwAdapter.php                 # SQLFTW implementation
@@ -36,18 +38,22 @@ tests/                               # PHPUnit tests
     ValidateSelectColumnsMatchPhpDocRuleTest.php
     DetectSelfReferenceConditionsRuleTest.php
     DetectMySqlSpecificSyntaxRuleTest.php
+    DetectInvalidTableReferencesRuleTest.php
+    DetectTautologicalConditionsRuleTest.php
   Fixtures/                          # Test fixture files with intentional errors
     SqlSyntaxErrors.php
     ParameterBindingErrors.php
     SelectColumnErrors.php
     SelfReferenceErrors.php
     MySqlSpecificSyntaxErrors.php
+    InvalidTableReferences.php
+    TautologicalConditions.php
 
 extension.neon                       # PHPStan configuration that registers the rules
 composer.json                        # Package definition
 ```
 
-## The Five Rules
+## The Seven Rules
 
 ### 1. ValidatePdoSqlSyntaxRule
 - **Purpose**: Catches MySQL syntax errors in `prepare()` and `query()` calls
@@ -86,6 +92,20 @@ composer.json                        # Package definition
   - `LIMIT offset, count` → suggests `LIMIT count OFFSET offset`
 - **Use case**: Helps maintain database-agnostic code for future migrations
 - **Key feature**: Simple regex-based detection with helpful suggestions
+
+### 6. DetectInvalidTableReferencesRule
+- **Purpose**: Catches typos in table and alias names used in qualified column references
+- **Examples**: `user.name` when table is `users`, or referencing a table not in FROM/JOIN
+- **Detects**: Invalid table/alias references in SELECT, WHERE, JOIN, ORDER BY, GROUP BY, HAVING
+- **Key feature**: Validates against all tables and aliases declared in FROM and JOIN clauses
+
+### 7. DetectTautologicalConditionsRule
+- **Purpose**: Detects tautological conditions that are always true or always false
+- **Examples**: `WHERE 1 = 1`, `WHERE 'a' = 'b'`, `WHERE TRUE = FALSE`
+- **Detects**: Numeric, string, and boolean literal comparisons
+- **Supports**: WHERE, JOIN ON, and HAVING clauses
+- **Performance**: Early bailout using cheap regex pre-check before expensive SQLFTW parsing
+- **Key feature**: Replaces PDO placeholders with NULL to avoid false positives
 
 ## Common Patterns
 

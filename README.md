@@ -4,14 +4,15 @@ Static analysis rules for PHPStan that validate PDO/MySQL code for common errors
 
 ## Features
 
-This extension provides six powerful rules that work without requiring a database connection:
+This extension provides seven powerful rules that work without requiring a database connection:
 
 1. **SQL Syntax Validation** - Detects MySQL syntax errors in `prepare()` and `query()` calls
 2. **Parameter Binding Validation** - Ensures PDO parameters match SQL placeholders
 3. **SELECT Column Validation** - Verifies SELECT columns match PHPDoc type annotations
 4. **Self-Reference Detection** - Catches self-reference conditions in JOIN and WHERE clauses
 5. **Invalid Table Reference Detection** - Catches typos in table/alias names (e.g., `user.name` when table is `users`)
-6. **MySQL-Specific Syntax Detection** - Flags MySQL-specific functions that have portable ANSI alternatives
+6. **Tautological Condition Detection** - Catches always-true/false conditions like `WHERE 1 = 1`
+7. **MySQL-Specific Syntax Detection** - Flags MySQL-specific functions that have portable ANSI alternatives
 
 All validation is performed statically by analyzing your code, so no database setup is needed.
 
@@ -446,7 +447,78 @@ This catches common typos that would only be discovered at runtime, like:
 - Typos in alias names (`usr` vs `usrs`)
 - Wrong table references in complex JOINs
 
-### 6. MySQL-Specific Syntax Detection
+### 6. Tautological Condition Detection
+
+Detects tautological conditions that are always true or always false. These are often left over from development (e.g., `WHERE 1 = 1` used to easily toggle conditions) and should be removed before committing.
+
+```php
+// ❌ Always-true condition
+$stmt = $db->prepare("
+    SELECT *
+    FROM users
+    WHERE 1 = 1
+");
+```
+
+> [!CAUTION]
+> Tautological condition in WHERE clause: '1 = 1' (always true)
+
+```php
+// ❌ Always-false condition
+$stmt = $db->prepare("
+    SELECT *
+    FROM users
+    WHERE 1 = 0
+");
+```
+
+> [!CAUTION]
+> Tautological condition in WHERE clause: '1 = 0' (always false)
+
+```php
+// ❌ String literal tautology
+$stmt = $db->prepare("SELECT * FROM users WHERE 'yes' = 'yes'");
+```
+
+> [!CAUTION]
+> Tautological condition in WHERE clause: ''yes' = 'yes'' (always true)
+
+```php
+// ❌ Boolean tautology
+$stmt = $db->prepare("SELECT * FROM users WHERE TRUE = FALSE");
+```
+
+> [!CAUTION]
+> Tautological condition in WHERE clause: 'TRUE = FALSE' (always false)
+
+```php
+// ❌ Tautology in JOIN condition
+$stmt = $db->prepare("
+    SELECT *
+    FROM users
+    INNER JOIN orders ON 1 = 1
+");
+```
+
+> [!CAUTION]
+> Tautological condition in JOIN clause: '1 = 1' (always true)
+
+```php
+// ✅ Valid - comparing column to literal
+$stmt = $db->prepare("SELECT * FROM users WHERE status = 1");
+
+// ✅ Valid - using parameter
+$stmt = $db->prepare("SELECT * FROM users WHERE id = :id");
+```
+
+> [!NOTE]
+> This rule detects:
+> - Numeric comparisons: `1 = 1`, `0 = 0`, `42 = 42`, `1 = 0`
+> - String comparisons: `'yes' = 'yes'`, `'a' = 'b'`
+> - Boolean comparisons: `TRUE = TRUE`, `FALSE = FALSE`, `TRUE = FALSE`
+> - In WHERE, JOIN ON, and HAVING clauses
+
+### 7. MySQL-Specific Syntax Detection
 
 Detects MySQL-specific SQL syntax that has portable ANSI alternatives. This helps maintain database-agnostic code for future migrations to PostgreSQL, SQL Server, or other databases.
 
@@ -575,6 +647,7 @@ These rules are designed to be fast:
 | `pdoSql.selfReferenceCondition` | Self-Reference Detection | Self-referencing condition in JOIN or WHERE clause |
 | `pdoSql.invalidTableReference` | Invalid Table Reference Detection | Invalid table or alias name in qualified column reference |
 | `pdoSql.mySqlSpecific` | MySQL-Specific Syntax | MySQL-specific function with portable alternative |
+| `pdoSql.tautologicalCondition` | Tautological Condition Detection | Always-true or always-false condition detected |
 
 ### Ignoring Specific Errors
 
@@ -606,6 +679,9 @@ parameters:
 
         # Ignore all MySQL-specific syntax errors
         - identifier: pdoSql.mySqlSpecific
+
+        # Ignore all tautological condition errors
+        - identifier: pdoSql.tautologicalCondition
 ```
 
 You can also ignore errors by path or message pattern:
