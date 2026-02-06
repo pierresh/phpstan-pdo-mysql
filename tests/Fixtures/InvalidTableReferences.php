@@ -127,4 +127,24 @@ class InvalidTableReferences
 		');
 		$stmt->execute(['id' => 1]);
 	}
+
+	// ✅ Valid - subquery aliases (derived tables) should be recognized
+	public function validSubqueryAliases(): void
+	{
+		$stmt = $this->db->prepare('
+			SELECT summary.total, details.name
+			FROM (
+				SELECT COUNT(*) AS total, category_id
+				FROM products
+				GROUP BY category_id
+			) AS summary
+			LEFT JOIN (
+				SELECT id, name
+				FROM categories
+				WHERE active = 1
+			) AS details ON details.id = summary.category_id
+			ORDER BY summary.total
+		');
+		$stmt->execute();
+	}
 }

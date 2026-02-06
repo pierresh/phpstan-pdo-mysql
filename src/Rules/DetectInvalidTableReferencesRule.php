@@ -20,6 +20,8 @@ use SqlFtw\Sql\Dml\Insert\InsertSelectCommand;
 use SqlFtw\Sql\Dml\Query\SelectCommand;
 use SqlFtw\Sql\Dml\TableReference\InnerJoin;
 use SqlFtw\Sql\Dml\TableReference\OuterJoin;
+use SqlFtw\Sql\Dml\TableReference\TableReferenceParentheses;
+use SqlFtw\Sql\Dml\TableReference\TableReferenceSubquery;
 use SqlFtw\Sql\Expression\QualifiedName;
 
 /**
@@ -373,6 +375,19 @@ class DetectInvalidTableReferencesRule implements Rule
 
 			// Always add the actual table name (can be used even when alias exists)
 			$this->availableTables[$tableName] = true;
+		}
+
+		// Handle subquery aliases: FROM (SELECT ...) AS alias
+		if ($tableRef instanceof TableReferenceSubquery) {
+			$alias = $tableRef->getAlias();
+			if ($alias !== null) {
+				$this->availableTables[$alias] = true;
+			}
+		}
+
+		// Handle parenthesized table references
+		if ($tableRef instanceof TableReferenceParentheses) {
+			$this->buildAvailableTablesMap($tableRef->getContent());
 		}
 
 		// Recursively process JOINs
