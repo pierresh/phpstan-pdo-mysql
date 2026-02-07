@@ -214,7 +214,7 @@ class DetectInvalidTableReferencesRule implements Rule
 
 		// Recurse into child nodes
 		foreach ($node->getSubNodeNames() as $subNodeName) {
-			$subNode = $node->$subNodeName;
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
 
 			if (is_array($subNode)) {
 				foreach ($subNode as $item) {
@@ -286,8 +286,7 @@ class DetectInvalidTableReferencesRule implements Rule
 		// Performance: Only process SELECT queries (this rule only works with SELECT)
 		$upperSql = strtoupper(trim($sql));
 		if (
-			!str_starts_with($upperSql, 'SELECT')
-			&& !str_contains($upperSql, 'INSERT')
+			!str_starts_with($upperSql, 'SELECT') && !str_contains($upperSql, 'INSERT')
 		) {
 			return [];
 		}
@@ -408,7 +407,7 @@ class DetectInvalidTableReferencesRule implements Rule
 
 		// Check SELECT columns
 		$columns = $selectCommand->getColumns();
-		if ($columns !== null) {
+		if ($columns !== null) { // @phpstan-ignore notIdentical.alwaysTrue
 			foreach ($columns as $column) {
 				$expr = $column->getExpression();
 				$this->extractQualifiedNamesRecursive($expr, $invalidTables);
@@ -476,7 +475,7 @@ class DetectInvalidTableReferencesRule implements Rule
 			$methods = ['getLeft', 'getRight', 'getExpression', 'getArguments'];
 			foreach ($methods as $method) {
 				if (method_exists($expr, $method)) {
-					$subExpr = $expr->$method();
+					$subExpr = $expr->{$method}(); // @phpstan-ignore method.dynamicName
 					if ($subExpr !== null) {
 						if (is_array($subExpr)) {
 							foreach ($subExpr as $item) {

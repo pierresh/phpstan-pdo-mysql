@@ -101,7 +101,7 @@ class DetectMySqlSpecificSyntaxRule implements Rule
 
 		// Recurse into child nodes
 		foreach ($node->getSubNodeNames() as $name) {
-			$subNode = $node->{$name};
+			$subNode = $node->{$name}; // @phpstan-ignore property.dynamicName
 			if ($subNode instanceof Node) {
 				$this->extractSqlVariablesRecursive($subNode, $sqlVariables);
 			} elseif (is_array($subNode)) {
@@ -154,7 +154,7 @@ class DetectMySqlSpecificSyntaxRule implements Rule
 
 		// Recurse into child nodes
 		foreach ($node->getSubNodeNames() as $name) {
-			$subNode = $node->{$name};
+			$subNode = $node->{$name}; // @phpstan-ignore property.dynamicName
 			if ($subNode instanceof Node) {
 				$this->findAndCheckSqlCalls($subNode, $sqlVariables, $errors);
 			} elseif (is_array($subNode)) {

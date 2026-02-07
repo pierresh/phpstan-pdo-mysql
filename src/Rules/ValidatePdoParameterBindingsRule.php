@@ -609,7 +609,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array{property: string, param: string, line: int}|null
 	 */
-	private function extractBindCallIfPresent(Node $node): null|array
+	private function extractBindCallIfPresent(Node $node): ?array
 	{
 		if (!$this->isBindMethodCall($node)) {
 			return null;
@@ -652,7 +652,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 		return (
 			$node instanceof MethodCall
 			&& $node->name instanceof Node\Identifier
-			&& in_array($node->name->toString(), ['bindValue', 'bindParam'])
+			&& in_array($node->name->toString(), ['bindValue', 'bindParam'], true)
 			&& $node->var instanceof PropertyFetch
 		);
 	}
@@ -680,7 +680,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 		$results = [];
 
 		foreach ($node->getSubNodeNames() as $subNodeName) {
-			$subNode = $node->{$subNodeName};
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
 
 			if ($subNode instanceof Node) {
 				$results = array_merge($results, $this->findBindCallsInNode($subNode));
@@ -750,7 +750,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array{property: string, line: int, params: array<array{name: string, line: int}>|null}|null
 	 */
-	private function extractExecuteCallIfPresent(Node $node): null|array
+	private function extractExecuteCallIfPresent(Node $node): ?array
 	{
 		if (!$this->isExecuteMethodCall($node)) {
 			return null;
@@ -794,7 +794,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array<array{name: string, line: int}>|null
 	 */
-	private function extractExecuteArrayParams(MethodCall $methodCall): null|array
+	private function extractExecuteArrayParams(MethodCall $methodCall): ?array
 	{
 		if ($methodCall->getArgs() === []) {
 			return null;
@@ -832,7 +832,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 		$results = [];
 
 		foreach ($node->getSubNodeNames() as $subNodeName) {
-			$subNode = $node->{$subNodeName};
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
 
 			if ($subNode instanceof Node) {
 				$results = array_merge($results, $this->findExecuteCallsInNode($subNode));

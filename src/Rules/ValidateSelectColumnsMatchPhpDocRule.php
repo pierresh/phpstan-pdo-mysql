@@ -159,7 +159,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool} $varAnnotation
 	 */
-	private function validateFetchMethod(array $varAnnotation): null|\PHPStan\Rules\RuleError
+	private function validateFetchMethod(array $varAnnotation): ?\PHPStan\Rules\RuleError
 	{
 		if (!isset($varAnnotation['fetch_method'])) {
 			return null;
@@ -181,7 +181,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		bool $isArrayType,
 		int $sqlLine,
 		int $varLine,
-	): null|\PHPStan\Rules\RuleError {
+	): ?\PHPStan\Rules\RuleError {
 		// fetchAll() should have array<object{...}> type
 		if ($fetchMethod === 'fetchAll' && !$isArrayType) {
 			return RuleErrorBuilder::message(sprintf(
@@ -221,7 +221,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool, doc_text?: string, method?: ClassMethod, in_while_loop?: bool} $varAnnotation
 	 */
-	private function validateFalseHandling(array $varAnnotation): null|\PHPStan\Rules\RuleError
+	private function validateFalseHandling(array $varAnnotation): ?\PHPStan\Rules\RuleError
 	{
 		// Only validate fetch() and fetchObject(), NOT fetchAll()
 		if (!isset($varAnnotation['fetch_method'])) {
@@ -236,8 +236,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		// Skip validation if @var is inside a while loop condition
 		// In while loops, if fetch() returns false, the loop body won't execute
 		if (
-			isset($varAnnotation['in_while_loop'])
-			&& $varAnnotation['in_while_loop']
+			isset($varAnnotation['in_while_loop']) && $varAnnotation['in_while_loop']
 		) {
 			return null;
 		}
@@ -247,8 +246,8 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			$docText = $varAnnotation['doc_text'];
 			// Match @var ... |false or @var false|... (with optional spaces around |)
 			if (
-				preg_match('/@var\s+[^@\n]*\|\s*false/', $docText)
-				|| preg_match('/@var\s+false\s*\|/', $docText)
+				(bool) preg_match('/@var\s+[^@\n]*\|\s*false/', $docText)
+				|| (bool) preg_match('/@var\s+false\s*\|/', $docText)
 			) {
 				return null; // Has |false, no error
 			}
@@ -518,12 +517,10 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			// Check if either side is false literal
 			$leftIsFalse =
 				$expr->left instanceof Node\Expr\ConstFetch
-				&& $expr->left->name instanceof Node\Name
 				&& $expr->left->name->toString() === 'false';
 
 			$rightIsFalse =
 				$expr->right instanceof Node\Expr\ConstFetch
-				&& $expr->right->name instanceof Node\Name
 				&& $expr->right->name->toString() === 'false';
 
 			return $leftIsFalse || $rightIsFalse;
@@ -618,7 +615,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @return array{string, array<string, string>}|null [aliasName, properties]
 	 */
-	private function matchTypeAliasPattern(string $text): null|array
+	private function matchTypeAliasPattern(string $text): ?array
 	{
 		$matchCount = preg_match(
 			'/@phpstan-type\s+(\w+)\s+object\s*\{([^}]+)\}/s',
@@ -639,7 +636,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * @param array<int, string> $match
 	 * @return array{string, array<string, string>}|null [aliasName, properties]
 	 */
-	private function parseTypeAliasMatch(array $match): null|array
+	private function parseTypeAliasMatch(array $match): ?array
 	{
 		$aliasName = $match[1];
 		$shapeContent = $match[2];
@@ -856,7 +853,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		Node $node,
 		array &$varShapes,
 		array $typeAliases,
-		null|array $whileLoopContext = null,
+		?array $whileLoopContext = null,
 	): void {
 		// Special handling for while loops: while ($user = $stmt->fetch()) { /** @var ... */ ... }
 		if ($node instanceof Node\Stmt\While_ && $whileLoopContext === null) {
@@ -939,7 +936,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		// Recurse into child nodes (pass along the while loop context if present)
 		foreach ($node->getSubNodeNames() as $subNodeName) {
-			$subNode = $node->$subNodeName;
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
 
 			if (is_array($subNode)) {
 				foreach ($subNode as $item) {
@@ -995,8 +992,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		// Get the statement variable being called on (e.g., $stmt)
 		if (
-			!$methodCall->var instanceof Variable
-			|| !is_string($methodCall->var->name)
+			!$methodCall->var instanceof Variable || !is_string($methodCall->var->name)
 		) {
 			return [];
 		}
@@ -1088,7 +1084,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * Extract the target of a fetch call (variable name or property name)
 	 * Handles both $stmt->fetch() and $this->property->fetch()
 	 */
-	private function extractFetchTarget(MethodCall $methodCall): null|string
+	private function extractFetchTarget(MethodCall $methodCall): ?string
 	{
 		// Case 1: Simple variable - $stmt->fetch()
 		if (
@@ -1160,7 +1156,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		// Recursively search in child nodes
 		foreach ($node->getSubNodeNames() as $subNodeName) {
-			$subNode = $node->$subNodeName;
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
 
 			if (is_array($subNode)) {
 				foreach ($subNode as $item) {
@@ -1184,7 +1180,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		string $sql,
 		int $sqlLine,
 		array $objectShape,
-		null|int $reportLine = null,
+		?int $reportLine = null,
 	): array {
 		$errors = [];
 		$reportLine ??= $sqlLine;
@@ -1247,7 +1243,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	private function extractObjectShapeFromPhpDoc(
 		string $docComment,
 		string $annotation = '@return',
-	): null|array {
+	): ?array {
 		// Clean up doc comment: remove leading asterisks and normalize whitespace
 		// This handles multiline PHPDoc comments like:
 		// /**
@@ -1414,7 +1410,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		// Recursively search in child nodes
 		foreach ($node->getSubNodeNames() as $subNodeName) {
-			$subNode = $node->$subNodeName;
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
 
 			if (is_array($subNode)) {
 				foreach ($subNode as $item) {
@@ -1433,7 +1429,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @return array<string>|null Column names or null if parsing fails
 	 */
-	private function extractSelectColumns(string $sql): null|array
+	private function extractSelectColumns(string $sql): ?array
 	{
 		// Remove comments and normalize whitespace
 		$sql = (string) preg_replace('/--.*$/m', '', $sql);
@@ -1454,7 +1450,10 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		// Handle SELECT * or SELECT table.*
 		$trimmedSelect = trim($selectPart);
-		if ($trimmedSelect === '*' || preg_match('/\w+\.\*/', $trimmedSelect)) {
+		if (
+			$trimmedSelect === '*'
+			|| (bool) preg_match('/\w+\.\*/', $trimmedSelect)
+		) {
 			return null; // Can't validate SELECT * or table.*
 		}
 

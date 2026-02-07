@@ -212,7 +212,7 @@ class DetectSelfReferenceConditionsRule implements Rule
 
 		// Recurse into child nodes
 		foreach ($node->getSubNodeNames() as $subNodeName) {
-			$subNode = $node->$subNodeName;
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
 
 			if (is_array($subNode)) {
 				foreach ($subNode as $item) {
@@ -473,7 +473,7 @@ class DetectSelfReferenceConditionsRule implements Rule
 		int $baseLine,
 		string $originalSql,
 		string $context,
-	): null|\PHPStan\Rules\RuleError {
+	): ?\PHPStan\Rules\RuleError {
 		$rootNode = $comparisonOperator->getLeft();
 		$right = $comparisonOperator->getRight();
 

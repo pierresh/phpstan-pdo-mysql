@@ -203,7 +203,7 @@ class DetectTautologicalConditionsRule implements Rule
 		}
 
 		foreach ($node->getSubNodeNames() as $subNodeName) {
-			$subNode = $node->$subNodeName;
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
 
 			if (is_array($subNode)) {
 				foreach ($subNode as $item) {
@@ -262,10 +262,8 @@ class DetectTautologicalConditionsRule implements Rule
 		// Check for boolean comparisons: "TRUE = TRUE", "FALSE = FALSE", etc.
 		$upperSql = strtoupper($sql);
 		return (
-			str_contains($upperSql, 'TRUE')
-			&& str_contains($upperSql, '=')
-			|| str_contains($upperSql, 'FALSE')
-			&& str_contains($upperSql, '=')
+			str_contains($upperSql, 'TRUE') && str_contains($upperSql, '=')
+			|| str_contains($upperSql, 'FALSE') && str_contains($upperSql, '=')
 		);
 	}
 
@@ -464,7 +462,7 @@ class DetectTautologicalConditionsRule implements Rule
 		int $baseLine,
 		string $originalSql,
 		string $context,
-	): null|\PHPStan\Rules\RuleError {
+	): ?\PHPStan\Rules\RuleError {
 		$rootNode = $comparisonOperator->getLeft();
 		$right = $comparisonOperator->getRight();
 
@@ -517,7 +515,7 @@ class DetectTautologicalConditionsRule implements Rule
 	 *
 	 * @return array{value: string, display: string}|null
 	 */
-	private function getLiteralValue(object $expr): null|array
+	private function getLiteralValue(object $expr): ?array
 	{
 		if ($expr instanceof NumericLiteral) {
 			$value = $expr->getValue();

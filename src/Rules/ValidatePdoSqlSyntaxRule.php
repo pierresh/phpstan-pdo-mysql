@@ -118,10 +118,8 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 *
 	 * @return array{string, string, int}|null [varName, sql, line]
 	 */
-	private function extractSqlFromAssignment(
-		Assign $assign,
-		int $line,
-	): null|array {
+	private function extractSqlFromAssignment(Assign $assign, int $line): ?array
+	{
 		if (!$this->isSimpleVariableAssignment($assign)) {
 			return null;
 		}
@@ -159,7 +157,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	private function recurseIntoChildNodes(Node $node, array &$sqlVariables): void
 	{
 		foreach ($node->getSubNodeNames() as $subNodeName) {
-			$subNode = $node->$subNodeName;
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
 
 			if (is_array($subNode)) {
 				foreach ($subNode as $item) {
@@ -353,7 +351,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 		array &$errors,
 	): void {
 		foreach ($node->getSubNodeNames() as $subNodeName) {
-			$subNode = $node->$subNodeName;
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
 
 			if (is_array($subNode)) {
 				foreach ($subNode as $item) {
