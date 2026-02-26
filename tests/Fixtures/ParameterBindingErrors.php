@@ -129,6 +129,20 @@ class ParameterBindingErrors
 		$stmt->execute(['name' => 'John']);
 	}
 
+	public function dateTimeInSqlString(): void
+	{
+		// Datetime literals like '2026-02-25 08:00:00' contain colons that must NOT
+		// be treated as PDO placeholders (:00 is not a placeholder)
+		$stmt = $this->db->prepare("
+			UPDATE users
+			SET
+				last_login = '2026-02-25 08:00:00',
+				status = 'active'
+			WHERE id = :id
+		");
+		$stmt->execute(['id' => 1]); // Should NOT report any error
+	}
+
 	public function extraParameterOnSpecificLine(): void
 	{
 		// Test that extra parameter errors are reported on the parameter's line

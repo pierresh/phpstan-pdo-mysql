@@ -860,6 +860,11 @@ class ValidatePdoParameterBindingsRule implements Rule
 	{
 		$placeholders = [];
 
+		// Strip single-quoted string literals before scanning for placeholders.
+		// Values like '2026-02-25 08:00:00' contain colons that would otherwise
+		// be mistaken for PDO named parameters (e.g. :00).
+		$sql = (string) preg_replace("/'(?:[^'\\\\]|\\\\.)*'/", "''", $sql);
+
 		// Match :placeholder_name pattern
 		// PDO allows placeholders starting with digits (e.g., :5min_ago)
 		$matchCount = preg_match_all('/:(\w+)/', $sql, $matches);
