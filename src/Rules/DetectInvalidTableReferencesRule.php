@@ -374,6 +374,13 @@ class DetectInvalidTableReferencesRule implements Rule
 
 			// Always add the actual table name (can be used even when alias exists)
 			$this->availableTables[$tableName] = true;
+
+			// For cross-database references (e.g., "db.table"), also register the short
+			// table name so that column references like "table.col" are accepted.
+			if (str_contains($tableName, '.')) {
+				$shortName = substr($tableName, (int) strrpos($tableName, '.') + 1);
+				$this->availableTables[$shortName] = true;
+			}
 		}
 
 		// Handle subquery aliases: FROM (SELECT ...) AS alias

@@ -128,6 +128,18 @@ class InvalidTableReferences
 		$stmt->execute(['id' => 1]);
 	}
 
+	// ✅ Valid - cross-database table references (database.table syntax in FROM/JOIN)
+	public function validCrossDatabaseReferences(): void
+	{
+		$stmt = $this->db->prepare('
+			SELECT users.id, orders.order_id
+			FROM myapp.users
+			INNER JOIN myapp.orders ON users.id = orders.user_id
+			WHERE users.id = :user_id
+		');
+		$stmt->execute(['user_id' => 1]);
+	}
+
 	// ✅ Valid - subquery aliases (derived tables) should be recognized
 	public function validSubqueryAliases(): void
 	{
