@@ -1164,17 +1164,21 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 */
 	private function extractPlaceholdersFromEncapsedString(Encapsed $encapsed): array
 	{
-		$placeholders = [];
+		// Build a combined string where variable interpolations are replaced with an
+		// empty string. This preserves the surrounding single-quote structure so that
+		// e.g. '$password' becomes '', which the quote-stripping regex in
+		// extractPlaceholders() handles cleanly without consuming adjacent :placeholders.
+		$combined = '';
 
 		foreach ($encapsed->parts as $part) {
-			// Only process literal string parts
 			if ($part instanceof EncapsedStringPart) {
-				$literalPart = $part->value;
-				$partPlaceholders = $this->extractPlaceholders($literalPart);
-				$placeholders = array_merge($placeholders, $partPlaceholders);
+				$combined .= $part->value;
 			}
+
+			// Variable/expression parts contribute nothing — the adjacent single-quotes
+			// (e.g. from '$var') form a valid empty quoted pair '' that gets stripped.
 		}
 
-		return array_values(array_unique($placeholders));
+		return array_values(array_unique($this->extractPlaceholders($combined)));
 	}
 }

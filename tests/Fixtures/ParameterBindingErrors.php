@@ -155,6 +155,26 @@ class ParameterBindingErrors
 	}
 }
 
+class InterpolatedStringPlaceholderAfterVariable
+{
+	private PDO $db;
+
+	private \PDOStatement $stmt;
+
+	public function prepareWithInterpolatedVariable(string $password): void
+	{
+		// PHP variable inside SQL string followed by a PDO placeholder.
+		// The ':now' placeholder must not be consumed by the quote-stripping regex
+		// that would otherwise match from the closing "'" of '$password' to the next "'".
+		// The quoted 'active' after :now is required to trigger the bug.
+		$this->stmt = $this->db->prepare("
+			INSERT INTO users (username, password, created_at, status)
+			VALUES ('admin', '$password', :now, 'active')
+		");
+		$this->stmt->execute(['now' => date('Y-m-d H:i:s')]); // Should NOT report any error
+	}
+}
+
 class PropertyBindingErrors
 {
 	private PDO $db;

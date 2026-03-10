@@ -34,10 +34,10 @@ class ValidatePdoParameterBindingsRuleTest extends RuleTestCase
 			['Missing bindValue/bindParam for :user_id',    119],
 			['Parameter :user_i is bound but not used',     119],
 			['Parameter :extra in execute() is not used',   153], // Multi-line array: error on parameter line
-			['Missing bindValue/bindParam for :issue_code', 183],
-			['Parameter :issu_code is bound but not used',  189],
-			['Missing bindValue/bindParam for :issue_code', 192],
-			['Parameter :issu_code is bound but not used',  189],
+			['Missing bindValue/bindParam for :issue_code', 203],
+			['Parameter :issu_code is bound but not used',  209],
+			['Missing bindValue/bindParam for :issue_code', 212],
+			['Parameter :issu_code is bound but not used',  209],
 		]);
 	}
 
