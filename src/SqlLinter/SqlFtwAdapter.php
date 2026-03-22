@@ -5,6 +5,7 @@ namespace Pierresh\PhpStanPdoMysql\SqlLinter;
 use SqlFtw\Parser\InvalidCommand;
 use SqlFtw\Parser\Parser as SqlFtwParser;
 use SqlFtw\Parser\ParserConfig;
+use SqlFtw\Parser\ParserException;
 use SqlFtw\Platform\Platform;
 use SqlFtw\Session\Session;
 
@@ -177,17 +178,16 @@ class SqlFtwAdapter implements SqlLinterInterface
 	private function extractSqlLineNumber(
 		\Throwable $throwable,
 		string $errorMessage,
-	): null|int {
-		if (in_array(
-			preg_match('/at position (\d+)/', $errorMessage, $matches),
-			[0, false],
-			true,
-		)) {
+	): ?int {
+		if (!$throwable instanceof ParserException) {
+			return null;
+		}
+
+		if (preg_match('/at position (\d+)/', $errorMessage, $matches) !== 1) {
 			return null;
 		}
 
 		$tokenIndex = (int) $matches[1];
-		// @phpstan-ignore-next-line - InvalidCommand always throws InvalidTokenException which has getTokenList()
 		$tokenList = $throwable->getTokenList();
 		$tokens = $tokenList->getTokens();
 
@@ -195,14 +195,10 @@ class SqlFtwAdapter implements SqlLinterInterface
 			return $tokens[$tokenIndex]->row;
 		}
 
-		if (count($tokens) > 0) {
-			// If token index is out of bounds (e.g., "end of query"),
-			// use the last token's row
-			$lastToken = end($tokens);
-			return $lastToken->row;
-		}
-
-		return null;
+		// If token index is out of bounds (e.g., "end of query"),
+		// use the last token's row
+		$lastToken = end($tokens);
+		return $lastToken->row;
 	}
 
 	/**

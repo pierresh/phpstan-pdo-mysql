@@ -7,12 +7,13 @@ use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
-use PhpParser\Node\Scalar\Encapsed;
-use PhpParser\Node\Scalar\EncapsedStringPart;
+use PhpParser\Node\InterpolatedStringPart;
+use PhpParser\Node\Scalar\InterpolatedString;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PHPStan\Analyser\Scope;
+use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 
@@ -39,15 +40,14 @@ class ValidatePdoParameterBindingsRule implements Rule
 		return Class_::class;
 	}
 
+	/** @return list<IdentifierRuleError> */
 	public function processNode(Node $node, Scope $scope): array
 	{
-		$errors = [];
-
-		// 1. Validate class properties across methods
-		$errors = array_merge($errors, $this->validateClassProperties($node));
-
+		$errors = $this->validateClassProperties($node);
 		// 2. Validate local variables within each method
-		$errors = array_merge($errors, $this->validateLocalVariables($node));
+		foreach ($this->validateLocalVariables($node) as $identifierRuleError) {
+			$errors[] = $identifierRuleError;
+		}
 
 		return $errors;
 	}
@@ -55,7 +55,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	/**
 	 * Validate class properties (e.g., $this->query) across methods
 	 *
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateClassProperties(Class_ $class): array
 	{
@@ -81,7 +81,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 * @param array<string, array{placeholders: array<string>, line: int, sql: string}> $propertyPreparations
 	 * @param array<string, array{params: array<string>, locations: array<string, int>}> $propertyBindings
 	 * @param array<string, array<array{line: int, params: array<array{name: string, line: int}>|null}>> $executeCalls
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateAllPropertyPreparations(
 		array $propertyPreparations,
@@ -109,7 +109,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 * @param array{placeholders: array<string>, line: int, sql: string} $info
 	 * @param array<string, array{params: array<string>, locations: array<string, int>}> $propertyBindings
 	 * @param array<string, array<array{line: int, params: array<array{name: string, line: int}>|null}>> $executeCalls
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateSinglePropertyPreparation(
 		string $propertyName,
@@ -144,7 +144,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 * @param array{line: int, params: array<array{name: string, line: int}>|null} $execute
 	 * @param array<string> $placeholders
 	 * @param array<string, array{params: array<string>, locations: array<string, int>}> $propertyBindings
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validatePropertyExecuteCall(
 		array $execute,
@@ -176,7 +176,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @param array<string> $placeholders
 	 * @param array<array{name: string, line: int}> $executeParams
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateExecuteWithArray(
 		array $placeholders,
@@ -224,7 +224,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @param array<string> $placeholders
 	 * @param array<string, array{params: array<string>, locations: array<string, int>}> $propertyBindings
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateExecuteWithBindings(
 		array $placeholders,
@@ -268,7 +268,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	/**
 	 * Validate local variables (e.g., $query) within each method
 	 *
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateLocalVariables(Class_ $class): array
 	{
@@ -287,7 +287,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	/**
 	 * Validate local variables within a single method
 	 *
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateMethodLocalVariables(ClassMethod $classMethod): array
 	{
@@ -323,7 +323,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 * Matches each execute() to the most recent prepare() before it
 	 *
 	 * @param array<array{var: string, sql: string, line: int, placeholders: array<string>}> $preparations
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateVariablePreparations(
 		string $varName,
@@ -343,7 +343,10 @@ class ValidatePdoParameterBindingsRule implements Rule
 		}
 
 		// Sort preparations by line number (should already be in order, but ensure it)
-		usort($preparations, fn($a, $b): int => $a['line'] <=> $b['line']);
+		usort(
+			$preparations,
+			fn(array $a, array $b): int => $a['line'] <=> $b['line'],
+		);
 
 		// Get bindings for this variable
 		$boundParams = $this->extractLocalVariableBindings($classMethod, $varName);
@@ -386,7 +389,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 * @param array{line: int, params: array<array{name: string, line: int}>|null} $executeCall
 	 * @param array<string> $placeholders
 	 * @param array<string> $boundParams
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateLocalVariableExecuteCall(
 		array $executeCall,
@@ -416,7 +419,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @param array<string> $placeholders
 	 * @param array<string> $boundParams
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateLocalExecuteWithBindings(
 		array $placeholders,
@@ -521,7 +524,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 						if (isset($sqlVariables[$varName])) {
 							$sql = $sqlVariables[$varName];
 						}
-					} elseif ($firstArg instanceof Encapsed) { // Case 3: Interpolated string (e.g., "SELECT $col FROM ...")
+					} elseif ($firstArg instanceof InterpolatedString) { // Case 3: Interpolated string (e.g., "SELECT $col FROM ...")
 						$placeholders = $this->extractPlaceholdersFromEncapsedString($firstArg);
 						// Use a placeholder SQL for line reference purposes
 						$sql = '[interpolated string]';
@@ -807,10 +810,6 @@ class ValidatePdoParameterBindingsRule implements Rule
 
 		$params = [];
 		foreach ($firstArg->items as $item) {
-			if (!$item instanceof Node\Expr\ArrayItem) {
-				continue;
-			}
-
 			if ($item->key instanceof String_) {
 				$params[] = [
 					'name' => ltrim($item->key->value, ':'),
@@ -935,7 +934,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 					if (isset($sqlVariables[$varName])) {
 						$sql = $sqlVariables[$varName];
 					}
-				} elseif ($firstArg instanceof Encapsed) { // Case 3: Interpolated string (e.g., "SELECT $col FROM ...")
+				} elseif ($firstArg instanceof InterpolatedString) { // Case 3: Interpolated string (e.g., "SELECT $col FROM ...")
 					$placeholders = $this->extractPlaceholdersFromEncapsedString($firstArg);
 					// Use a placeholder SQL for line reference purposes
 					$sql = '[interpolated string]';
@@ -1092,7 +1091,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 		$stmts = $classMethod->getStmts();
 
 		// Early bailout if method is empty
-		if ($stmts === null || count($stmts) === 0) {
+		if ($stmts === null || $stmts === []) {
 			return [];
 		}
 
@@ -1162,7 +1161,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 	 *
 	 * @return array<string>
 	 */
-	private function extractPlaceholdersFromEncapsedString(Encapsed $encapsed): array
+	private function extractPlaceholdersFromEncapsedString(InterpolatedString $interpolatedString): array
 	{
 		// Build a combined string where variable interpolations are replaced with an
 		// empty string. This preserves the surrounding single-quote structure so that
@@ -1170,8 +1169,8 @@ class ValidatePdoParameterBindingsRule implements Rule
 		// extractPlaceholders() handles cleanly without consuming adjacent :placeholders.
 		$combined = '';
 
-		foreach ($encapsed->parts as $part) {
-			if ($part instanceof EncapsedStringPart) {
+		foreach ($interpolatedString->parts as $part) {
+			if ($part instanceof InterpolatedStringPart) {
 				$combined .= $part->value;
 			}
 

@@ -9,6 +9,7 @@ use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PHPStan\Analyser\Scope;
+use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use SqlFtw\Parser\InvalidCommand;
@@ -55,6 +56,7 @@ class DetectInvalidTableReferencesRule implements Rule
 		return ClassMethod::class;
 	}
 
+	/** @return list<IdentifierRuleError> */
 	public function processNode(Node $node, Scope $scope): array
 	{
 		$errors = [];
@@ -63,10 +65,12 @@ class DetectInvalidTableReferencesRule implements Rule
 		$sqlQueries = $this->extractSqlQueries($node);
 
 		foreach ($sqlQueries as $sqlQuery) {
-			$errors = array_merge($errors, $this->validateTableReferences(
+			foreach ($this->validateTableReferences(
 				$sqlQuery['sql'],
 				$sqlQuery['line'],
-			));
+			) as $error) {
+				$errors[] = $error;
+			}
 		}
 
 		return $errors;
@@ -258,7 +262,7 @@ class DetectInvalidTableReferencesRule implements Rule
 	/**
 	 * Validate table references in SQL query
 	 *
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateTableReferences(string $sql, int $line): array
 	{
@@ -414,11 +418,9 @@ class DetectInvalidTableReferencesRule implements Rule
 
 		// Check SELECT columns
 		$columns = $selectCommand->getColumns();
-		if ($columns !== null) { // @phpstan-ignore notIdentical.alwaysTrue
-			foreach ($columns as $column) {
-				$expr = $column->getExpression();
-				$this->extractQualifiedNamesRecursive($expr, $invalidTables);
-			}
+		foreach ($columns as $column) {
+			$expr = $column->getExpression();
+			$this->extractQualifiedNamesRecursive($expr, $invalidTables);
 		}
 
 		// Check WHERE clause

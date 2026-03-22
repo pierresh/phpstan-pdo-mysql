@@ -19,15 +19,15 @@ class DdtTest extends TestCase
 		$output = ddt($obj, returnOnly: true);
 
 		$expected = <<<'PHPSTAN'
-		/**
-		 * @phpstan-type Item object{
-		 *  id: int,
-		 *  name: string,
-		 *  status: int,
-		 * }
-		 */
+			/**
+			 * @phpstan-type Item object{
+			 *  id: int,
+			 *  name: string,
+			 *  status: int,
+			 * }
+			 */
 
-		PHPSTAN;
+			PHPSTAN;
 
 		$this->assertSame($expected, $output);
 	}
@@ -46,18 +46,18 @@ class DdtTest extends TestCase
 		$output = ddt($workflow, returnOnly: true);
 
 		$expected = <<<'PHPSTAN'
-		/**
-		 * @phpstan-type Item object{
-		 *  id: int,
-		 *  status: string,
-		 *  metadata: object{
-		 *    created_at: string,
-		 *    updated_at: string,
-		 *  },
-		 * }
-		 */
+			/**
+			 * @phpstan-type Item object{
+			 *  id: int,
+			 *  status: string,
+			 *  metadata: object{
+			 *    created_at: string,
+			 *    updated_at: string,
+			 *  },
+			 * }
+			 */
 
-		PHPSTAN;
+			PHPSTAN;
 
 		$this->assertSame($expected, $output);
 	}
@@ -73,15 +73,15 @@ class DdtTest extends TestCase
 		$output = ddt($config, returnOnly: true);
 
 		$expected = <<<'PHPSTAN'
-		/**
-		 * @phpstan-type Item array{
-		 *  database: string,
-		 *  port: int,
-		 *  debug: bool,
-		 * }
-		 */
+			/**
+			 * @phpstan-type Item array{
+			 *  database: string,
+			 *  port: int,
+			 *  debug: bool,
+			 * }
+			 */
 
-		PHPSTAN;
+			PHPSTAN;
 
 		$this->assertSame($expected, $output);
 	}
@@ -93,11 +93,11 @@ class DdtTest extends TestCase
 		$output = ddt($ids, returnOnly: true);
 
 		$expected = <<<'PHPSTAN'
-		/**
-		 * @phpstan-type Item array<int, int>
-		 */
+			/**
+			 * @phpstan-type Item array<int, int>
+			 */
 
-		PHPSTAN;
+			PHPSTAN;
 
 		$this->assertSame($expected, $output);
 	}
@@ -109,11 +109,11 @@ class DdtTest extends TestCase
 		$output = ddt($values, returnOnly: true);
 
 		$expected = <<<'PHPSTAN'
-		/**
-		 * @phpstan-type Item array<int, mixed>
-		 */
+			/**
+			 * @phpstan-type Item array<int, mixed>
+			 */
 
-		PHPSTAN;
+			PHPSTAN;
 
 		$this->assertSame($expected, $output);
 	}
@@ -125,11 +125,11 @@ class DdtTest extends TestCase
 		$output = ddt($obj, returnOnly: true);
 
 		$expected = <<<'PHPSTAN'
-		/**
-		 * @phpstan-type Item object{}
-		 */
+			/**
+			 * @phpstan-type Item object{}
+			 */
 
-		PHPSTAN;
+			PHPSTAN;
 
 		$this->assertSame($expected, $output);
 	}
@@ -141,11 +141,11 @@ class DdtTest extends TestCase
 		$output = ddt($arr, returnOnly: true);
 
 		$expected = <<<'PHPSTAN'
-		/**
-		 * @phpstan-type Item array{}
-		 */
+			/**
+			 * @phpstan-type Item array{}
+			 */
 
-		PHPSTAN;
+			PHPSTAN;
 
 		$this->assertSame($expected, $output);
 	}
@@ -157,11 +157,11 @@ class DdtTest extends TestCase
 		$output = ddt($value, returnOnly: true);
 
 		$expected = <<<'PHPSTAN'
-		/**
-		 * @phpstan-type Item null
-		 */
+			/**
+			 * @phpstan-type Item null
+			 */
 
-		PHPSTAN;
+			PHPSTAN;
 
 		$this->assertSame($expected, $output);
 	}
@@ -179,14 +179,14 @@ class DdtTest extends TestCase
 		$output = ddt($instance, returnOnly: true);
 
 		$expected = <<<'PHPSTAN'
-		/**
-		 * @phpstan-type Item object{
-		 *  id: int,
-		 *  name: string,
-		 * }
-		 */
+			/**
+			 * @phpstan-type Item object{
+			 *  id: int,
+			 *  name: string,
+			 * }
+			 */
 
-		PHPSTAN;
+			PHPSTAN;
 
 		$this->assertSame($expected, $output);
 	}
@@ -203,17 +203,17 @@ class DdtTest extends TestCase
 		$output = ddt($obj, returnOnly: true);
 
 		$expected = <<<'PHPSTAN'
-		/**
-		 * @phpstan-type Item object{
-		 *  int_val: int,
-		 *  float_val: float,
-		 *  string_val: string,
-		 *  bool_val: bool,
-		 *  null_val: null,
-		 * }
-		 */
+			/**
+			 * @phpstan-type Item object{
+			 *  int_val: int,
+			 *  float_val: float,
+			 *  string_val: string,
+			 *  bool_val: bool,
+			 *  null_val: null,
+			 * }
+			 */
 
-		PHPSTAN;
+			PHPSTAN;
 
 		$this->assertSame($expected, $output);
 	}

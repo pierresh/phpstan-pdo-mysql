@@ -9,6 +9,7 @@ use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PHPStan\Analyser\Scope;
+use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use Pierresh\PhpStanPdoMysql\SqlLinter\SqlFtwAdapter;
@@ -35,6 +36,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 		return ClassMethod::class;
 	}
 
+	/** @return list<IdentifierRuleError> */
 	public function processNode(Node $node, Scope $scope): array
 	{
 		$errors = [];
@@ -175,7 +177,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 * Find all prepare() and query() calls and validate their SQL
 	 *
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
-	 * @param array<\PHPStan\Rules\RuleError> &$errors
+	 * @param list<IdentifierRuleError> &$errors
 	 */
 	private function findPrepareQueryCalls(
 		Node $node,
@@ -191,7 +193,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 * Process direct prepare() or query() method calls
 	 *
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
-	 * @param array<\PHPStan\Rules\RuleError> &$errors
+	 * @param list<IdentifierRuleError> &$errors
 	 */
 	private function processDirectMethodCall(
 		Node $node,
@@ -253,7 +255,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 * Validate the SQL argument from a method call
 	 *
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
-	 * @param array<\PHPStan\Rules\RuleError> &$errors
+	 * @param list<IdentifierRuleError> &$errors
 	 */
 	private function validateMethodCallArgument(
 		Node\Expr $expr,
@@ -291,7 +293,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 * Process assignment with prepare() or query() method calls
 	 *
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
-	 * @param array<\PHPStan\Rules\RuleError> &$errors
+	 * @param list<IdentifierRuleError> &$errors
 	 */
 	private function processAssignmentMethodCall(
 		Node $node,
@@ -343,7 +345,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 * Recurse into child nodes for prepare/query validation
 	 *
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
-	 * @param array<\PHPStan\Rules\RuleError> &$errors
+	 * @param list<IdentifierRuleError> &$errors
 	 */
 	private function recurseIntoChildNodesForValidation(
 		Node $node,
@@ -395,7 +397,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	/**
 	 * Validate SQL query and return errors
 	 *
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateSqlQuery(
 		string $sqlQuery,

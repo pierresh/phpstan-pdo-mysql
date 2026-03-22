@@ -9,6 +9,7 @@ use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PHPStan\Analyser\Scope;
+use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use SqlFtw\Parser\InvalidCommand;
@@ -58,6 +59,7 @@ class DetectTautologicalConditionsRule implements Rule
 		return ClassMethod::class;
 	}
 
+	/** @return list<IdentifierRuleError> */
 	public function processNode(Node $node, Scope $scope): array
 	{
 		$errors = [];
@@ -65,10 +67,12 @@ class DetectTautologicalConditionsRule implements Rule
 		$sqlQueries = $this->extractSqlQueries($node);
 
 		foreach ($sqlQueries as $sqlQuery) {
-			$errors = array_merge($errors, $this->checkForTautologies(
+			foreach ($this->checkForTautologies(
 				$sqlQuery['sql'],
 				$sqlQuery['line'],
-			));
+			) as $error) {
+				$errors[] = $error;
+			}
 		}
 
 		return $errors;
@@ -282,7 +286,7 @@ class DetectTautologicalConditionsRule implements Rule
 	/**
 	 * Check SQL query for tautological conditions
 	 *
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function checkForTautologies(string $sql, int $line): array
 	{
@@ -363,7 +367,7 @@ class DetectTautologicalConditionsRule implements Rule
 	/**
 	 * Check JOIN conditions for tautologies
 	 *
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function checkJoinConditions(
 		object $tableRef,
@@ -385,7 +389,7 @@ class DetectTautologicalConditionsRule implements Rule
 					$originalSql,
 					'JOIN',
 				);
-				if ($error instanceof \PHPStan\Rules\RuleError) {
+				if ($error instanceof \PHPStan\Rules\IdentifierRuleError) {
 					$errors[] = $error;
 				}
 			} elseif ($condition instanceof \SqlFtw\Sql\Expression\ExpressionNode) {
@@ -409,7 +413,7 @@ class DetectTautologicalConditionsRule implements Rule
 	/**
 	 * Recursively check conditions for tautologies
 	 *
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function checkCondition(
 		object $expr,
@@ -426,7 +430,7 @@ class DetectTautologicalConditionsRule implements Rule
 				$originalSql,
 				$context,
 			);
-			if ($error instanceof \PHPStan\Rules\RuleError) {
+			if ($error instanceof \PHPStan\Rules\IdentifierRuleError) {
 				$errors[] = $error;
 			}
 		}
@@ -462,7 +466,7 @@ class DetectTautologicalConditionsRule implements Rule
 		int $baseLine,
 		string $originalSql,
 		string $context,
-	): ?\PHPStan\Rules\RuleError {
+	): ?IdentifierRuleError {
 		$rootNode = $comparisonOperator->getLeft();
 		$right = $comparisonOperator->getRight();
 

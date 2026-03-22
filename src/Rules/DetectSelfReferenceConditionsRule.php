@@ -9,6 +9,7 @@ use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PHPStan\Analyser\Scope;
+use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 use SqlFtw\Parser\InvalidCommand;
@@ -53,6 +54,7 @@ class DetectSelfReferenceConditionsRule implements Rule
 		return ClassMethod::class;
 	}
 
+	/** @return list<IdentifierRuleError> */
 	public function processNode(Node $node, Scope $scope): array
 	{
 		$errors = [];
@@ -61,10 +63,12 @@ class DetectSelfReferenceConditionsRule implements Rule
 		$sqlQueries = $this->extractSqlQueries($node);
 
 		foreach ($sqlQueries as $sqlQuery) {
-			$errors = array_merge($errors, $this->checkForSelfReferences(
+			foreach ($this->checkForSelfReferences(
 				$sqlQuery['sql'],
 				$sqlQuery['line'],
-			));
+			) as $error) {
+				$errors[] = $error;
+			}
 		}
 
 		return $errors;
@@ -256,7 +260,7 @@ class DetectSelfReferenceConditionsRule implements Rule
 	/**
 	 * Check SQL query for self-reference conditions
 	 *
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function checkForSelfReferences(string $sql, int $line): array
 	{
@@ -335,7 +339,7 @@ class DetectSelfReferenceConditionsRule implements Rule
 	/**
 	 * Check JOIN conditions for self-references
 	 *
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function checkJoinConditions(
 		object $tableRef,
@@ -360,7 +364,7 @@ class DetectSelfReferenceConditionsRule implements Rule
 					$originalSql,
 					'JOIN',
 				);
-				if ($error instanceof \PHPStan\Rules\RuleError) {
+				if ($error instanceof \PHPStan\Rules\IdentifierRuleError) {
 					$errors[] = $error;
 				}
 			}
@@ -377,7 +381,7 @@ class DetectSelfReferenceConditionsRule implements Rule
 	/**
 	 * Recursively check WHERE conditions for self-references
 	 *
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function checkWhereCondition(
 		object $expr,
@@ -394,7 +398,7 @@ class DetectSelfReferenceConditionsRule implements Rule
 				$originalSql,
 				'WHERE',
 			);
-			if ($error instanceof \PHPStan\Rules\RuleError) {
+			if ($error instanceof \PHPStan\Rules\IdentifierRuleError) {
 				$errors[] = $error;
 			}
 		}
@@ -473,7 +477,7 @@ class DetectSelfReferenceConditionsRule implements Rule
 		int $baseLine,
 		string $originalSql,
 		string $context,
-	): ?\PHPStan\Rules\RuleError {
+	): ?IdentifierRuleError {
 		$rootNode = $comparisonOperator->getLeft();
 		$right = $comparisonOperator->getRight();
 

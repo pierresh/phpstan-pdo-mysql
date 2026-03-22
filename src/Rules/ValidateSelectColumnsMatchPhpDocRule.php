@@ -10,6 +10,7 @@ use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PHPStan\Analyser\Scope;
+use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 
@@ -43,6 +44,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		return Class_::class;
 	}
 
+	/** @return list<IdentifierRuleError> */
 	public function processNode(Node $node, Scope $scope): array
 	{
 		if ($this->shouldSkipFile($scope->getFile())) {
@@ -68,7 +70,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @param array<string, array{sql: string, line: int, var?: string}> $propertyPreparations
 	 * @param array<string, array<string, string>> $typeAliases
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateAllMethods(
 		Class_ $class,
@@ -95,9 +97,9 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Process var annotations and validate them
 	 *
-	 * @param array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool, doc_text?: string, method?: ClassMethod}> $varAnnotations
+	 * @param array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool}> $varAnnotations
 	 * @param array<string, bool> &$seen
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function processVarAnnotations(
 		array $varAnnotations,
@@ -116,14 +118,14 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 			// Validate fetch method matches PHPDoc type structure
 			$fetchMethodError = $this->validateFetchMethod($varAnnotation);
-			if ($fetchMethodError instanceof \PHPStan\Rules\RuleError) {
+			if ($fetchMethodError instanceof \PHPStan\Rules\IdentifierRuleError) {
 				$errors[] = $fetchMethodError;
 				continue; // Skip column validation if type structure is wrong
 			}
 
 			// Validate false handling for fetch() and fetchObject()
 			$falseHandlingError = $this->validateFalseHandling($varAnnotation);
-			if ($falseHandlingError instanceof \PHPStan\Rules\RuleError) {
+			if ($falseHandlingError instanceof \PHPStan\Rules\IdentifierRuleError) {
 				$errors[] = $falseHandlingError;
 			}
 
@@ -143,7 +145,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Generate unique key for annotation to avoid duplicates
 	 *
-	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool} $varAnnotation
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool} $varAnnotation
 	 */
 	private function getAnnotationKey(array $varAnnotation): string
 	{
@@ -157,17 +159,17 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Validate fetch method if present
 	 *
-	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool} $varAnnotation
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool} $varAnnotation
 	 */
-	private function validateFetchMethod(array $varAnnotation): ?\PHPStan\Rules\RuleError
+	private function validateFetchMethod(array $varAnnotation): ?IdentifierRuleError
 	{
-		if (!isset($varAnnotation['fetch_method'])) {
+		if ($varAnnotation['fetch_method'] === null) {
 			return null;
 		}
 
 		return $this->validateFetchMethodMatchesPhpDocType(
 			$varAnnotation['fetch_method'],
-			$varAnnotation['is_array_type'] ?? false,
+			$varAnnotation['is_array_type'],
 			$varAnnotation['sql_line'],
 			$varAnnotation['var_line'],
 		);
@@ -181,7 +183,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		bool $isArrayType,
 		int $sqlLine,
 		int $varLine,
-	): ?\PHPStan\Rules\RuleError {
+	): ?IdentifierRuleError {
 		// fetchAll() should have array<object{...}> type
 		if ($fetchMethod === 'fetchAll' && !$isArrayType) {
 			return RuleErrorBuilder::message(sprintf(
@@ -219,12 +221,12 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * 3. The code checks === false, !== false, or !$var after fetch
 	 * 4. The @var is inside a while loop (false stops execution automatically)
 	 *
-	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool, doc_text?: string, method?: ClassMethod, in_while_loop?: bool} $varAnnotation
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool} $varAnnotation
 	 */
-	private function validateFalseHandling(array $varAnnotation): ?\PHPStan\Rules\RuleError
+	private function validateFalseHandling(array $varAnnotation): ?IdentifierRuleError
 	{
 		// Only validate fetch() and fetchObject(), NOT fetchAll()
-		if (!isset($varAnnotation['fetch_method'])) {
+		if ($varAnnotation['fetch_method'] === null) {
 			return null;
 		}
 
@@ -235,29 +237,27 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		// Skip validation if @var is inside a while loop condition
 		// In while loops, if fetch() returns false, the loop body won't execute
-		if (
-			isset($varAnnotation['in_while_loop']) && $varAnnotation['in_while_loop']
-		) {
+		if ($varAnnotation['in_while_loop']) {
 			return null;
 		}
 
 		// Check if PHPDoc includes |false
-		if (isset($varAnnotation['doc_text'])) {
-			$docText = $varAnnotation['doc_text'];
-			// Match @var ... |false or @var false|... (with optional spaces around |)
-			if (
+		$docText = $varAnnotation['doc_text'];
+		// Match @var ... |false or @var false|... (with optional spaces around |)
+		if (
+			$docText !== null
+			&& (
 				(bool) preg_match('/@var\s+[^@\n]*\|\s*false/', $docText)
 				|| (bool) preg_match('/@var\s+false\s*\|/', $docText)
-			) {
-				return null; // Has |false, no error
-			}
+			)
+		) {
+			return null;
+
+			// Has |false, no error
 		}
 
 		// Check if code has false-handling nearby
-		if (
-			isset($varAnnotation['method'])
-			&& $this->hasFalseHandlingInMethod($varAnnotation['method'])
-		) {
+		if ($this->hasFalseHandlingInMethod($varAnnotation['method'])) {
 			return null; // Has false handling, no error
 		}
 
@@ -397,9 +397,14 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		// Check if body has throw or return (only check top-level statements)
 		foreach ($if->stmts as $stmt) {
+			if ($stmt instanceof Node\Stmt\Return_) {
+				return true;
+			}
+
+			// throw is represented as Node\Stmt\Expression wrapping Node\Expr\Throw_ in PHP-Parser 5.x
 			if (
-				$stmt instanceof Node\Stmt\Throw_
-				|| $stmt instanceof Node\Stmt\Return_
+				$stmt instanceof Node\Stmt\Expression
+				&& $stmt->expr instanceof Node\Expr\Throw_
 			) {
 				return true;
 			}
@@ -456,9 +461,14 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		// Check if body has throw or return (only check top-level statements)
 		foreach ($if->stmts as $stmt) {
+			if ($stmt instanceof Node\Stmt\Return_) {
+				return true;
+			}
+
+			// throw is represented as Node\Stmt\Expression wrapping Node\Expr\Throw_ in PHP-Parser 5.x
 			if (
-				$stmt instanceof Node\Stmt\Throw_
-				|| $stmt instanceof Node\Stmt\Return_
+				$stmt instanceof Node\Stmt\Expression
+				&& $stmt->expr instanceof Node\Expr\Throw_
 			) {
 				return true;
 			}
@@ -537,7 +547,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	private function extractTypeAliases(Class_ $class): array
 	{
 		$docComment = $class->getDocComment();
-		if ($docComment === null) {
+		if (!$docComment instanceof \PhpParser\Comment\Doc) {
 			return [];
 		}
 
@@ -756,7 +766,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @param array<string, array{sql: string, line: int, var?: string}> $propertyPreparations
 	 * @param array<string, array<string, string>> $typeAliases
-	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method?: string, is_array_type?: bool, doc_text?: string, method?: ClassMethod, in_while_loop?: bool}>
+	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool}>
 	 */
 	private function extractVarAnnotations(
 		ClassMethod $classMethod,
@@ -771,7 +781,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			$this->collectVarAnnotationsRecursive($stmt, $varShapes, $typeAliases);
 		}
 
-		if (count($varShapes) === 0) {
+		if ($varShapes === []) {
 			return [];
 		}
 
@@ -845,7 +855,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Recursively collect @var object{...} annotations
 	 *
-	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string, is_array_type?: bool, doc_text?: string, in_while_loop?: bool}> &$varShapes
+	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string|null, is_array_type?: bool, doc_text?: string, in_while_loop?: bool}> &$varShapes
 	 * @param array<string, array<string, string>> $typeAliases
 	 * @param array{var: string, method: string}|null $whileLoopContext Context when processing while loop body
 	 */
@@ -876,7 +886,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		}
 
 		$docComment = $node->getDocComment();
-		if ($docComment !== null) {
+		if ($docComment instanceof \PhpParser\Comment\Doc) {
 			$docText = $docComment->getText();
 
 			// Process @var comments on statement nodes
@@ -1174,7 +1184,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * Validate SQL against PHPDoc object shape
 	 *
 	 * @param array<string, string> $objectShape
-	 * @return array<\PHPStan\Rules\RuleError>
+	 * @return list<IdentifierRuleError>
 	 */
 	private function validateSqlAgainstPhpDoc(
 		string $sql,
@@ -1302,7 +1312,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * Extract prepare() statements from the method
 	 * Now supports both direct strings and variables
 	 *
-	 * @return array<array{sql: string, line: int, var?: string}>
+	 * @return array<array{sql: string, line: int, var?: string|null}>
 	 */
 	private function extractPrepareStatementsFromMethod(ClassMethod $classMethod): array
 	{
@@ -1459,7 +1469,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 		// Split by comma
 		$columns = [];
-		$parts = array_map('trim', explode(',', $selectPart));
+		$parts = array_map(trim(...), explode(',', $selectPart));
 
 		foreach ($parts as $part) {
 			// Handle aliases: "column AS alias" or "column alias"
@@ -1542,7 +1552,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		$stmts = $classMethod->getStmts();
 
 		// Early bailout if method is empty
-		if ($stmts === null || count($stmts) === 0) {
+		if ($stmts === null || $stmts === []) {
 			return [];
 		}
 

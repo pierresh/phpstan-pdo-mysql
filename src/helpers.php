@@ -42,11 +42,11 @@ if (!function_exists('ddt')) {
 		}
 
 		$output = <<<PHPSTAN
-		/**
-		 * @phpstan-type Item {$formattedType}
-		 */
+			/**
+			 * @phpstan-type Item {$formattedType}
+			 */
 
-		PHPSTAN;
+			PHPSTAN;
 
 		if ($returnOnly) {
 			return $output;
@@ -281,11 +281,11 @@ if (!function_exists('ddc')) {
 		$properties = formatClassProperties($value, $visitedObjects);
 
 		$output = <<<PHP
-		class Item
-		{
-		{$properties}}
+			class Item
+			{
+			{$properties}}
 
-		PHP;
+			PHP;
 
 		if ($returnOnly) {
 			return $output;

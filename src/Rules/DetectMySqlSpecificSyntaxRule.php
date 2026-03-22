@@ -9,6 +9,7 @@ use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\ClassMethod;
 use PHPStan\Analyser\Scope;
+use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
 use PHPStan\Rules\RuleErrorBuilder;
 
@@ -44,6 +45,7 @@ class DetectMySqlSpecificSyntaxRule implements Rule
 		return ClassMethod::class;
 	}
 
+	/** @return list<IdentifierRuleError> */
 	public function processNode(Node $node, Scope $scope): array
 	{
 		$errors = [];
@@ -118,7 +120,7 @@ class DetectMySqlSpecificSyntaxRule implements Rule
 	 * Find prepare()/query() calls and check for MySQL-specific syntax
 	 *
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
-	 * @param array<\PHPStan\Rules\RuleError> &$errors
+	 * @param list<IdentifierRuleError> &$errors
 	 */
 	private function findAndCheckSqlCalls(
 		Node $node,
@@ -170,7 +172,7 @@ class DetectMySqlSpecificSyntaxRule implements Rule
 	/**
 	 * Check SQL for MySQL-specific syntax
 	 *
-	 * @param array<\PHPStan\Rules\RuleError> &$errors
+	 * @param list<IdentifierRuleError> &$errors
 	 */
 	private function checkForMySqlSpecificSyntax(
 		string $sql,
