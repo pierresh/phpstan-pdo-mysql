@@ -97,7 +97,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Process var annotations and validate them
 	 *
-	 * @param array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool}> $varAnnotations
+	 * @param array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool}> $varAnnotations
 	 * @param array<string, bool> &$seen
 	 * @return list<IdentifierRuleError>
 	 */
@@ -221,7 +221,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * 3. The code checks === false, !== false, or !$var after fetch
 	 * 4. The @var is inside a while loop (false stops execution automatically)
 	 *
-	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool} $varAnnotation
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool} $varAnnotation
 	 */
 	private function validateFalseHandling(array $varAnnotation): ?IdentifierRuleError
 	{
@@ -238,6 +238,12 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		// Skip validation if @var is inside a while loop condition
 		// In while loops, if fetch() returns false, the loop body won't execute
 		if ($varAnnotation['in_while_loop']) {
+			return null;
+		}
+
+		// Skip validation if @var is inside if (rowCount() > 0) block
+		// fetch() is only reached when rows exist, so it cannot return false
+		if ($varAnnotation['in_rowcount_positive_if']) {
 			return null;
 		}
 
@@ -766,7 +772,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @param array<string, array{sql: string, line: int, var?: string}> $propertyPreparations
 	 * @param array<string, array<string, string>> $typeAliases
-	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool}>
+	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool}>
 	 */
 	private function extractVarAnnotations(
 		ClassMethod $classMethod,
@@ -845,6 +851,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					'doc_text' => $varShape['doc_text'] ?? null,
 					'method' => $classMethod,
 					'in_while_loop' => $varShape['in_while_loop'] ?? false,
+					'in_rowcount_positive_if' => $varShape['in_rowcount_positive_if'] ?? false,
 				];
 			}
 		}
@@ -855,7 +862,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Recursively collect @var object{...} annotations
 	 *
-	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string|null, is_array_type?: bool, doc_text?: string, in_while_loop?: bool}> &$varShapes
+	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string|null, is_array_type?: bool, doc_text?: string, in_while_loop?: bool, in_rowcount_positive_if?: bool}> &$varShapes
 	 * @param array<string, array<string, string>> $typeAliases
 	 * @param array{var: string, method: string}|null $whileLoopContext Context when processing while loop body
 	 */
@@ -864,6 +871,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		array &$varShapes,
 		array $typeAliases,
 		?array $whileLoopContext = null,
+		bool $inRowcountPositiveIf = false,
 	): void {
 		// Special handling for while loops: while ($user = $stmt->fetch()) { /** @var ... */ ... }
 		if ($node instanceof Node\Stmt\While_ && $whileLoopContext === null) {
@@ -885,6 +893,21 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			}
 		}
 
+		// Special handling for if (rowCount() > 0) { ... } - fetch inside is always safe
+		if ($node instanceof Node\Stmt\If_ && !$inRowcountPositiveIf && $this->isPositiveRowCountCondition($node->cond)) {
+			foreach ($node->stmts as $stmt) {
+				$this->collectVarAnnotationsRecursive(
+					$stmt,
+					$varShapes,
+					$typeAliases,
+					$whileLoopContext,
+					true,
+				);
+			}
+
+			return;
+		}
+
 		$docComment = $node->getDocComment();
 		if ($docComment instanceof \PhpParser\Comment\Doc) {
 			$docText = $docComment->getText();
@@ -897,7 +920,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				: $node instanceof Node\Stmt\Expression
 				|| $node instanceof Node\Stmt\Return_;
 
-			if ($isStatementNode) {
+			if ($isStatementNode || $inRowcountPositiveIf) {
 				// Check if the @var has array syntax: array<object{...}> or object{...}[]
 				$isArrayType =
 					(bool) preg_match('/@var\s+array<\s*object\s*\{/', $docText)
@@ -939,12 +962,13 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						'is_array_type' => $isArrayType,
 						'doc_text' => $docText,
 						'in_while_loop' => $inWhileLoop,
+						'in_rowcount_positive_if' => $inRowcountPositiveIf,
 					];
 				}
 			}
 		}
 
-		// Recurse into child nodes (pass along the while loop context if present)
+		// Recurse into child nodes (pass along context flags)
 		foreach ($node->getSubNodeNames() as $subNodeName) {
 			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
 
@@ -956,6 +980,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 							$varShapes,
 							$typeAliases,
 							$whileLoopContext,
+							$inRowcountPositiveIf,
 						);
 					}
 				}
@@ -965,9 +990,48 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					$varShapes,
 					$typeAliases,
 					$whileLoopContext,
+					$inRowcountPositiveIf,
 				);
 			}
 		}
+	}
+
+	/**
+	 * Check if an if condition is a positive rowCount() guard (e.g. rowCount() > 0).
+	 * When true, fetch() inside the block is always safe — it is only reached when rows exist.
+	 */
+	private function isPositiveRowCountCondition(Node\Expr $expr): bool
+	{
+		if (!$this->containsRowCountCall($expr)) {
+			return false;
+		}
+
+		// Plain truthy check: if ($stmt->rowCount())
+		if (!($expr instanceof Node\Expr\BinaryOp)) {
+			return true;
+		}
+
+		// Negative patterns mean "no rows" → not a positive guard
+		// rowCount() === 0  /  rowCount() == 0
+		if ($expr instanceof Node\Expr\BinaryOp\Identical || $expr instanceof Node\Expr\BinaryOp\Equal) {
+			return false;
+		}
+
+		$rowCountIsLeft = $expr->left instanceof MethodCall
+			&& $expr->left->name instanceof Node\Identifier
+			&& $expr->left->name->toString() === 'rowCount';
+
+		// rowCount() < 1  /  rowCount() <= 0
+		if ($rowCountIsLeft && ($expr instanceof Node\Expr\BinaryOp\Smaller || $expr instanceof Node\Expr\BinaryOp\SmallerOrEqual)) {
+			return false;
+		}
+
+		$rowCountIsRight = $expr->right instanceof MethodCall
+			&& $expr->right->name instanceof Node\Identifier
+			&& $expr->right->name->toString() === 'rowCount';
+        // 1 > rowCount()  /  0 >= rowCount()
+        // rowCount() > 0, rowCount() >= 1, rowCount() !== 0, rowCount() != 0 → positive guard
+        return !($rowCountIsRight && ($expr instanceof Node\Expr\BinaryOp\Greater || $expr instanceof Node\Expr\BinaryOp\GreaterOrEqual));
 	}
 
 	/**
