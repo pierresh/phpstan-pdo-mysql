@@ -1,14 +1,12 @@
-<?php
+<?php declare(strict_types=1);
 
-// Playground for testing PHPStan PDO MySQL extension
-// Open this file in your IDE with PHPStan plugin to see errors highlighted in real-time
-// Try modifying the code below and observe how PHPStan catches errors immediately
-
-namespace Playground;
+namespace Domain\Engineering\Reliability\Write\UseCase;
 
 use PDO;
+use InvalidArgumentException;
+use Domain\Engineering\Reliability\Write\Logic\TbfRecomputer;
 
-class UserRepository
+final class ImportWos
 {
     private PDO $db;
 
@@ -17,131 +15,81 @@ class UserRepository
         $this->db = $db;
     }
 
-    // ❌ SQL Syntax Error: incomplete SELECT statement
-    public function syntaxError(): void
+    /**
+     * @param array{reliability_code: string, wo_ids: int[], added_by: string, now: string} $data
+     */
+    public function execute(array $data): void
     {
-        $stmt = $this->db->query("SELECT * FROM");
-    }
+        $reliabilityId = $this->resolveReliabilityId($data['reliability_code']);
 
-    // ❌ Parameter Binding Error: missing :name parameter
-    public function parameterError(): void
-    {
-        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = :id AND name = :name");
-        $stmt->execute(['id' => 1]); // Missing :name
-    }
+        $this->db->prepare('DELETE FROM eng_reliability_wo WHERE reliability_id = :id')
+            ->execute(['id' => $reliabilityId]);
 
-    // ❌ SELECT Column Mismatch: typo in column name
-    // ❌ Missing |false: fetch() can return false
-    public function columnMismatch(): void
-    {
-        $stmt = $this->db->prepare("SELECT id, nam, email FROM users WHERE id = :id");
-        $stmt->execute(['id' => 1]);
-
-        /** @var object{id: int, name: string, email: string} */
-        $user = $stmt->fetch(); // PHPDoc expects 'name' but SELECT has 'nam'
-    }
-
-    // ❌ Missing |false in type annotation
-    public function missingFalseType(): void
-    {
-        $stmt = $this->db->prepare("SELECT id, name, email FROM users WHERE id = :id");
-        $stmt->execute(['id' => 1]);
-
-        /** @var object{id: int, name: string, email: string} */
-        $user = $stmt->fetch(); // Can return false when no rows found!
-    }
-
-    // ✅ Valid: |false included in type annotation
-    public function validWithFalseType(): void
-    {
-        $stmt = $this->db->prepare("SELECT id, name, email FROM users WHERE id = :id");
-        $stmt->execute(['id' => 1]);
-
-        /** @var object{id: int, name: string, email: string}|false */
-        $user = $stmt->fetch();
-    }
-
-    // ✅ Valid: |false with spaces (both styles supported)
-    public function validWithFalseTypeSpaced(): void
-    {
-        $stmt = $this->db->prepare("SELECT id, name, email FROM users WHERE id = :id");
-        $stmt->execute(['id' => 1]);
-
-        /** @var object{id: int, name: string, email: string} | false */
-        $user = $stmt->fetch();
-    }
-
-    // ✅ Valid: rowCount() check with throw
-    public function validWithRowCountCheck(): void
-    {
-        $stmt = $this->db->prepare("SELECT id, name, email FROM users WHERE id = :id");
-        $stmt->execute(['id' => 1]);
-
-        if ($stmt->rowCount() === 0) {
-            throw new \RuntimeException('User not found');
+        if ($data['wo_ids'] === []) {
+            return;
         }
 
-        /** @var object{id: int, name: string, email: string} */
-        $user = $stmt->fetch(); // Safe - won't execute if no rows
-    }
+        $fetchWo = $this->db->prepare('
+            SELECT
+                wo_history.wo_id,
+                wo_history.wo_name,
+                wo_history.asset_id,
+                wo_history.wo_creation_time,
+                (
+                    SELECT emr.last_cumul
+                    FROM eng_ml_event eme
+                    JOIN asset_list al ON al.asset_code = eme.asset_code
+                    JOIN eng_ml_event_reading emr ON emr.event_id = eme.id
+                    WHERE al.asset_id = wo_history.asset_id
+                      AND eme.added_time <= wo_history.wo_creation_time
+                    ORDER BY eme.added_time DESC
+                    LIMIT 1
+                ) AS counter_value
+            FROM wo_history
+            WHERE wo_history.wo_id = :wo_id
+        ');
 
-    // ✅ Valid: false check after fetch
-    public function validWithFalseCheck(): void
-    {
-        $stmt = $this->db->prepare("SELECT id, name, email FROM users WHERE id = :id");
-        $stmt->execute(['id' => 1]);
+        $insert = $this->db->prepare('
+            INSERT INTO eng_reliability_wo
+                (reliability_id, wo_id, asset_id, event_type, wo_name,
+                 wo_failure_time, source_counter_value, counter_value,
+                 included, added_by, added_time)
+            VALUES
+                (:reliability_id, :wo_id, :asset_id, \'WO\', :wo_name,
+                 :wo_failure_time, :source_counter_value, :counter_value,
+                 1, :added_by, :added_time)
+            ON DUPLICATE KEY UPDATE wo_id = wo_id
+        ');
 
-        /** @var object{id: int, name: string, email: string}|false */
-        $user = $stmt->fetch();
+        foreach ($data['wo_ids'] as $woId) {
+            $fetchWo->execute(['wo_id' => $woId]);
 
-        if ($user === false) {
-            throw new \RuntimeException('User not found');
+            /**
+             * @var object{
+             *  wo_id: int,
+             *  wo_name: string,
+             *  wo_creation_time: string,
+             *  asset_id: int,
+             *  counter_value: null | float,
+             * } | false $wo */
+            $wo = $fetchWo->fetch(PDO::FETCH_OBJ);
+
+            if ($wo === false) {
+                continue;
+            }
         }
     }
 
-    // ❌ rowCount() without throw/return doesn't help
-    public function invalidRowCountNoThrow(): void
+    private function resolveReliabilityId(string $code): int
     {
-        $stmt = $this->db->prepare("SELECT id, name, email FROM users WHERE id = :id");
-        $stmt->execute(['id' => 1]);
+        $stmt = $this->db->prepare('SELECT id FROM eng_reliability WHERE code = :code');
+        $stmt->execute(['code' => $code]);
+        $id = $stmt->fetchColumn();
 
-        if ($stmt->rowCount() === 0) {
-            // Empty block - execution continues!
+        if ($id === false) {
+            throw new InvalidArgumentException('Reliability not found: ' . $code);
         }
 
-        /** @var object{id: int, name: string, email: string} */
-        $user = $stmt->fetch(); // Still can return false!
+        return (int) $id;
     }
-
-    // ✅ fetchAll() doesn't need |false (returns empty array)
-    public function fetchAllValid(): void
-    {
-        $stmt = $this->db->prepare("SELECT id, name, email FROM users");
-        $stmt->execute();
-
-        /** @var array<object{id: int, name: string, email: string}> */
-        $users = $stmt->fetchAll(); // No |false needed
-    }
-
-    // ✅ SELECT * is allowed (cannot be validated statically)
-    public function selectStarAllowed(): void
-    {
-        $stmt = $this->db->prepare("SELECT * FROM users WHERE id = :id");
-        $stmt->execute(['id' => 1]);
-
-        /** @var object{id: int, name: string, email: string}|false */
-        $user = $stmt->fetch();
-    }
-
-    // ✅ SELECT table.* is allowed (cannot be validated statically)
-    public function selectTableStarAllowed(): void
-    {
-        $stmt = $this->db->prepare("SELECT users.* FROM users WHERE id = :id");
-        $stmt->execute(['id' => 1]);
-
-        /** @var object{id: int, name: string, email: string}|false */
-        $user = $stmt->fetch();
-    }
-
-    // Try adding your own examples below!
 }
