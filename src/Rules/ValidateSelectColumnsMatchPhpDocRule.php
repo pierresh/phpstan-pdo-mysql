@@ -248,18 +248,24 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		}
 
 		// Check if PHPDoc includes |false
+		// Clean multi-line doc comments before checking: remove leading "* " and collapse whitespace
+		// so that "} | false" on a different line from "@var object{" is still found.
 		$docText = $varAnnotation['doc_text'];
+		$cleanedDoc = null;
+		if ($docText !== null) {
+			$tmp = preg_replace('/^\s*\*\s*/m', ' ', $docText);
+			$cleanedDoc = is_string($tmp) ? (string) preg_replace('/\s+/', ' ', $tmp) : $docText;
+		}
+
 		// Match @var ... |false or @var false|... (with optional spaces around |)
 		if (
-			$docText !== null
+			$cleanedDoc !== null
 			&& (
-				(bool) preg_match('/@var\s+[^@\n]*\|\s*false/', $docText)
-				|| (bool) preg_match('/@var\s+false\s*\|/', $docText)
+				(bool) preg_match('/@var\s+[^@]*\|\s*false/', $cleanedDoc)
+				|| (bool) preg_match('/@var\s+false\s*\|/', $cleanedDoc)
 			)
 		) {
-			return null;
-
-			// Has |false, no error
+			return null; // Has |false, no error
 		}
 
 		// Check if code has false-handling nearby
@@ -1499,6 +1505,42 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	}
 
 	/**
+	 * Extract the SELECT column list from a normalized SQL string.
+	 * Walks character-by-character to skip subqueries inside parentheses,
+	 * so the first FROM at paren depth 0 is always the outer FROM.
+	 */
+	private function extractSelectPart(string $normalizedSql): ?string
+	{
+		if (
+			preg_match('/^\s*SELECT\s+/i', $normalizedSql, $m, PREG_OFFSET_CAPTURE) !== 1
+		) {
+			return null;
+		}
+
+		$start = $m[0][1] + strlen($m[0][0]);
+		$depth = 0;
+		$len = strlen($normalizedSql);
+
+		for ($i = $start; $i < $len; $i++) {
+			$ch = $normalizedSql[$i];
+
+			if ($ch === '(') {
+				$depth++;
+			} elseif ($ch === ')') {
+				$depth--;
+			} elseif (
+				$depth === 0
+				&& ($i === $start || $normalizedSql[$i - 1] === ' ')
+				&& strncasecmp(substr($normalizedSql, $i), 'FROM ', 5) === 0
+			) {
+				return trim(substr($normalizedSql, $start, $i - $start));
+			}
+		}
+
+		return null;
+	}
+
+	/**
 	 * Extract SELECT columns from SQL query
 	 *
 	 * @return array<string>|null Column names or null if parsing fails
@@ -1510,17 +1552,11 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		$sql = (string) preg_replace('/\/\*.*?\*\//s', '', $sql);
 		$sql = (string) preg_replace('/\s+/', ' ', trim($sql));
 
-		// Match SELECT ... FROM pattern
-		$selectMatchCount = preg_match(
-			'/^\s*SELECT\s+(.*?)\s+FROM\s+/i',
-			$sql,
-			$matches,
-		);
-		if ($selectMatchCount === false || $selectMatchCount === 0) {
+		// Match SELECT ... FROM pattern, skipping subqueries inside parentheses
+		$selectPart = $this->extractSelectPart($sql);
+		if ($selectPart === null) {
 			return null;
 		}
-
-		$selectPart = $matches[1];
 
 		// Handle SELECT * or SELECT table.*
 		$trimmedSelect = trim($selectPart);

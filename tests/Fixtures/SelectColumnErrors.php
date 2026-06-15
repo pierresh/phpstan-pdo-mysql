@@ -477,4 +477,67 @@ class SelectColumnErrors
 			$user = $this->userStmt->fetch(\PDO::FETCH_OBJ);
 		}
 	}
+
+	public function fetchWithMultilineFalseTypeInObjectShape(): void
+	{
+		// Multiline @var with |false on the closing line - should NOT error
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		/**
+		 * @var object{
+		 *  id: int,
+		 *  name: string,
+		 * } | false $user
+		 */
+		$user = $stmt->fetch(PDO::FETCH_OBJ);
+	}
+
+	public function fetchWithSubqueryAliasColumn(): void
+	{
+		// SELECT with a subquery aliased as a column - alias should be recognized - should NOT error
+		$stmt = $this->db->prepare('
+			SELECT
+				items.id,
+				items.name,
+				(
+					SELECT MAX(p.value)
+					FROM prices p
+					WHERE p.item_id = items.id
+				) AS extra_value
+			FROM items
+			WHERE items.id = :id
+		');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{id: int, name: string, extra_value: float|null}|false $item */
+		$item = $stmt->fetch(PDO::FETCH_OBJ);
+	}
+
+	public function fetchWithSubqueryAliasAndMultilineFalse(): void
+	{
+		// Combined: subquery alias + multiline @var with |false - should NOT error
+		$stmt = $this->db->prepare('
+			SELECT
+				items.id,
+				items.name,
+				(
+					SELECT MAX(p.value)
+					FROM prices p
+					WHERE p.item_id = items.id
+				) AS extra_value
+			FROM items
+			WHERE items.id = :id
+		');
+		$stmt->execute(['id' => 1]);
+
+		/**
+		 * @var object{
+		 *  id: int,
+		 *  name: string,
+		 *  extra_value: float|null,
+		 * } | false $item
+		 */
+		$item = $stmt->fetch(PDO::FETCH_OBJ);
+	}
 }
