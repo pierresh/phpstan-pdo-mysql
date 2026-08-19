@@ -540,4 +540,51 @@ class SelectColumnErrors
 		 */
 		$item = $stmt->fetch(PDO::FETCH_OBJ);
 	}
+
+	public function fetchWithInterpolatedSqlStringNoMismatch(): void
+	{
+		// Unrelated earlier query using the same fetch variable name ($row) - should NOT
+		// be matched against the second query below.
+		$lookup = $this->db->prepare('SELECT label FROM lookup_table');
+		$lookup->execute();
+		while ($row = $lookup->fetch()) {
+			/** @var object{label: string} */
+			$name = $row->label;
+		}
+
+		$extraColumns = ', extra_col';
+
+		// SQL built with an interpolated variable - should still be recognized and
+		// matched to this fetch, not to the unrelated query above.
+		$stmt = $this->db->prepare("
+			SELECT id, name $extraColumns
+			FROM users
+			WHERE id = :id
+		");
+		$stmt->execute(['id' => 1]);
+
+		while ($row = $stmt->fetch()) {
+			/** @var object{id: int, name: string} */
+			$user = $row;
+		}
+	}
+
+	public function fetchWithInterpolatedSqlStringColumnMismatch(): void
+	{
+		$extraColumns = ', extra_col';
+
+		// SQL built with an interpolated variable but with a typo'd column - should
+		// still be validated against the literal parts of the SQL.
+		$stmt = $this->db->prepare("
+			SELECT id, nam $extraColumns
+			FROM users
+			WHERE id = :id
+		");
+		$stmt->execute(['id' => 1]);
+
+		while ($row = $stmt->fetch()) {
+			/** @var object{id: int, name: string} */
+			$user = $row;
+		}
+	}
 }
