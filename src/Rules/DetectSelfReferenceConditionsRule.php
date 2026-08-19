@@ -483,7 +483,7 @@ class DetectSelfReferenceConditionsRule implements Rule
 
 		// Both sides must be QualifiedName (table.column)
 		if (
-			!($rootNode instanceof QualifiedName && $right instanceof QualifiedName)
+			!$rootNode instanceof QualifiedName || !$right instanceof QualifiedName
 		) {
 			return null;
 		}
