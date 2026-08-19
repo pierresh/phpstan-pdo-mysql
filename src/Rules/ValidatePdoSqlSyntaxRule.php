@@ -275,7 +275,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 		}
 
 		// Case 2: Variable reference
-		if (!($expr instanceof Variable && is_string($expr->name))) {
+		if (!$expr instanceof Variable || !is_string($expr->name)) {
 			return;
 		}
 

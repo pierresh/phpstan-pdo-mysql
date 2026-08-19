@@ -31,6 +31,5 @@ return static function (RectorConfig $rectorConfig): void {
         SetList::NAMING,
         SetList::INSTANCEOF,
         SetList::EARLY_RETURN,
-        SetList::STRICT_BOOLEANS,
     ]);
 };

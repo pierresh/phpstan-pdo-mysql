@@ -1062,7 +1062,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			&& $expr->right->name->toString() === 'rowCount';
         // 1 > rowCount()  /  0 >= rowCount()
         // rowCount() > 0, rowCount() >= 1, rowCount() !== 0, rowCount() != 0 → positive guard
-        return !($rowCountIsRight && ($expr instanceof Node\Expr\BinaryOp\Greater || $expr instanceof Node\Expr\BinaryOp\GreaterOrEqual));
+        return !$rowCountIsRight || !$expr instanceof Node\Expr\BinaryOp\Greater && !$expr instanceof Node\Expr\BinaryOp\GreaterOrEqual;
 	}
 
 	/**
@@ -1665,10 +1665,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		foreach ($stmts as $stmt) {
 			// Skip non-assignment statements
 			if (
-				!(
-					$stmt instanceof Node\Stmt\Expression
-					&& $stmt->expr instanceof Node\Expr\Assign
-				)
+				!$stmt instanceof Node\Stmt\Expression || !$stmt->expr instanceof Node\Expr\Assign
 			) {
 				continue;
 			}
@@ -1676,7 +1673,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			$assign = $stmt->expr;
 
 			// Check if left side is a simple variable
-			if (!($assign->var instanceof Variable && is_string($assign->var->name))) {
+			if (!$assign->var instanceof Variable || !is_string($assign->var->name)) {
 				continue;
 			}
 

@@ -1098,7 +1098,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 		foreach ($stmts as $stmt) {
 			// Skip non-assignment statements
 			if (
-				!($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof Assign)
+				!$stmt instanceof Node\Stmt\Expression || !$stmt->expr instanceof Assign
 			) {
 				continue;
 			}
@@ -1106,7 +1106,7 @@ class ValidatePdoParameterBindingsRule implements Rule
 			$assign = $stmt->expr;
 
 			// Check if left side is a simple variable
-			if (!($assign->var instanceof Variable && is_string($assign->var->name))) {
+			if (!$assign->var instanceof Variable || !is_string($assign->var->name)) {
 				continue;
 			}
 
