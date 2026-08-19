@@ -6,6 +6,8 @@ use PhpParser\Node;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\PropertyFetch;
 use PhpParser\Node\Expr\Variable;
+use PhpParser\Node\InterpolatedStringPart;
+use PhpParser\Node\Scalar\InterpolatedString;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassMethod;
@@ -695,6 +697,39 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	}
 
 	/**
+	 * Resolve the SQL text of an expression used as the first argument of prepare()
+	 * or assigned to a SQL variable. Supports plain string literals, references to
+	 * previously tracked SQL variables, and interpolated strings (e.g. "SELECT $cols FROM ...")
+	 * - the interpolated variable/expression parts are dropped, keeping only the
+	 * literal parts, since their runtime value cannot be known statically.
+	 *
+	 * @param array<string, string> $sqlVariables
+	 */
+	private function resolveSqlFromExpr(Node\Expr $expr, array $sqlVariables): ?string
+	{
+		if ($expr instanceof String_) {
+			return $expr->value;
+		}
+
+		if ($expr instanceof InterpolatedString) {
+			$sql = '';
+			foreach ($expr->parts as $part) {
+				if ($part instanceof InterpolatedStringPart) {
+					$sql .= $part->value;
+				}
+			}
+
+			return $sql;
+		}
+
+		if ($expr instanceof Variable && is_string($expr->name)) {
+			return $sqlVariables[$expr->name] ?? null;
+		}
+
+		return null;
+	}
+
+	/**
 	 * Extract property preparations like: $this->query = $db->prepare("...")
 	 * Now supports both direct strings and variables
 	 *
@@ -747,17 +782,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						&& $methodCall->getArgs() !== []
 					) {
 						$firstArg = $methodCall->getArgs()[0]->value;
-						$sql = null;
-
-						// Case 1: Direct string literal
-						if ($firstArg instanceof String_) {
-							$sql = $firstArg->value;
-						} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
-							$varName = $firstArg->name;
-							if (isset($sqlVariables[$varName])) {
-								$sql = $sqlVariables[$varName];
-							}
-						}
+						$sql = $this->resolveSqlFromExpr($firstArg, $sqlVariables);
 
 						if ($sql !== null) {
 							$preparations[$propertyName] = [
@@ -1422,17 +1447,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				&& $methodCall->getArgs() !== []
 			) {
 				$firstArg = $methodCall->getArgs()[0]->value;
-				$sql = null;
-
-				// Case 1: Direct string literal
-				if ($firstArg instanceof String_) {
-					$sql = $firstArg->value;
-				} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
-					$varName = $firstArg->name;
-					if (isset($sqlVariables[$varName])) {
-						$sql = $sqlVariables[$varName];
-					}
-				}
+				$sql = $this->resolveSqlFromExpr($firstArg, $sqlVariables);
 
 				if ($sql !== null) {
 					$statements[] = [
@@ -1459,7 +1474,6 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					&& $methodCall->getArgs() !== []
 				) {
 					$firstArg = $methodCall->getArgs()[0]->value;
-					$sql = null;
 					$assignedVar = null;
 
 					// Capture the variable name being assigned to
@@ -1467,15 +1481,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						$assignedVar = $assign->var->name;
 					}
 
-					// Case 1: Direct string literal
-					if ($firstArg instanceof String_) {
-						$sql = $firstArg->value;
-					} elseif ($firstArg instanceof Variable && is_string($firstArg->name)) { // Case 2: Variable reference
-						$varName = $firstArg->name;
-						if (isset($sqlVariables[$varName])) {
-							$sql = $sqlVariables[$varName];
-						}
-					}
+					$sql = $this->resolveSqlFromExpr($firstArg, $sqlVariables);
 
 					if ($sql !== null) {
 						$statements[] = [
@@ -1674,12 +1680,11 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				continue;
 			}
 
-			// Check if right side is a string
-			if (!$assign->expr instanceof String_) {
+			// Check if right side is a string (plain or interpolated)
+			$sql = $this->resolveSqlFromExpr($assign->expr, []);
+			if ($sql === null) {
 				continue;
 			}
-
-			$sql = $assign->expr->value;
 
 			// Simple heuristic: if it contains SQL keywords, consider it SQL
 			if ($this->looksLikeSQL($sql)) {
