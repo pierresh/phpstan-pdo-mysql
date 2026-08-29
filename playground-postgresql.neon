@@ -1,0 +1,6 @@
+includes:
+    - extension.neon
+
+parameters:
+    pdoMysql:
+        dialect: postgresql

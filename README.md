@@ -35,6 +35,24 @@ includes:
     - vendor/pierresh/phpstan-pdo-mysql/extension.neon
 ```
 
+## SQL Dialect Support
+
+By default, SQL syntax validation (Rule 1, `ValidatePdoSqlSyntaxRule`) validates MySQL syntax via SQLFTW. It can instead validate T-SQL (Microsoft SQL Server) or PostgreSQL syntax via [node-sql-parser](https://github.com/taozhi8833998/node-sql-parser):
+
+```neon
+parameters:
+    pdoMysql:
+        dialect: mssql # or "postgresql" - default is "mysql"
+```
+
+**Requirements for `mssql`/`postgresql`:** a `node` executable on `PATH`. No `npm install` is needed - `sql-cli/dist/sql-lint.js` is a self-contained bundle committed to this repo. If `node` isn't available, this rule silently skips validation rather than erroring (same graceful degradation as a missing SQLFTW install).
+
+**Known limitations of the `mssql`/`postgresql` dialects:**
+
+- `mssql`: `MERGE` statements are not supported by the underlying parser and will be reported as syntax errors even when valid - avoid enabling this dialect on code that uses `MERGE`, or expect false positives there.
+- Some invalid SQL (e.g. a `WHERE` clause with no `FROM`) is accepted by the underlying parser's grammar and will *not* be caught.
+- **Only Rule 1 supports these dialects.** The other three SQLFTW-dependent rules (`DetectSelfReferenceConditionsRule`, `DetectTautologicalConditionsRule`, `DetectInvalidTableReferencesRule`) parse SQL via SQLFTW's AST directly and remain MySQL-only regardless of this setting. `DetectMySqlSpecificSyntaxRule` is MySQL-specific by definition and not relevant to other dialects.
+
 ## Examples
 
 ### 1. SQL Syntax Validation
@@ -593,7 +611,8 @@ Currently detects:
 
 - PHP 8.1+
 - PHPStan 1.10+
-- SQLFTW 0.1+ (SQL syntax validation)
+- SQLFTW 0.1+ (SQL syntax validation, MySQL dialect - default)
+- Node.js (any recent version), optional - only needed for the `mssql`/`postgresql` dialects, see [SQL Dialect Support](#sql-dialect-support)
 
 ## How It Works
 
@@ -703,6 +722,15 @@ parameters:
 ## Playground
 
 Want to try the extension quickly? Open `playground/example.php` in your IDE with a PHPStan plugin installed. You'll see errors highlighted in real-time as you edit the code.
+
+To try the `mssql`/`postgresql` dialects, use `playground/example-mssql.php` / `playground/example-postgresql.php` with the matching `playground-mssql.neon` / `playground-postgresql.neon` instead:
+
+```bash
+vendor/bin/phpstan analyze playground/example-mssql.php -c playground-mssql.neon --level=max
+vendor/bin/phpstan analyze playground/example-postgresql.php -c playground-postgresql.neon --level=max
+```
+
+Or point your IDE's PHPStan plugin config at one of those `.neon` files to see dialect-specific errors highlighted live.
 
 ## Developer Tools
 

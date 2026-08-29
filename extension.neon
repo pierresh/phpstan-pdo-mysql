@@ -1,7 +1,16 @@
+parametersSchema:
+    pdoMysql: structure([
+        dialect: schema(anyOf('mysql', 'mssql', 'postgresql'))
+    ])
+
+parameters:
+    pdoMysql:
+        dialect: mysql
+
 services:
     -
-        class: Pierresh\PhpStanPdoMysql\SqlLinter\SqlFtwAdapter
-        autowired: true
+        class: Pierresh\PhpStanPdoMysql\SqlLinter\SqlLinterInterface
+        factory: Pierresh\PhpStanPdoMysql\SqlLinter\SqlLinterFactory::create(%pdoMysql.dialect%)
     -
         class: Pierresh\PhpStanPdoMysql\Rules\ValidatePdoSqlSyntaxRule
         tags:

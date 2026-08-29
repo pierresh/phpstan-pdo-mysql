@@ -1,0 +1,12 @@
+{
+    "name": "phpstan-pdo-mysql-sql-cli",
+    "private": true,
+    "description": "Node-based SQL syntax checker used by phpstan-pdo-mysql for non-MySQL dialects (T-SQL, and later PostgreSQL) via node-sql-parser. dist/sql-lint.js is a self-contained bundle committed to the repo - end users only need a `node` binary, no npm install.",
+    "scripts": {
+        "build": "esbuild src/sql-lint.js --bundle --platform=node --format=cjs --outfile=dist/sql-lint.js"
+    },
+    "devDependencies": {
+        "esbuild": "^0.28.2",
+        "node-sql-parser": "^5.4.0"
+    }
+}
