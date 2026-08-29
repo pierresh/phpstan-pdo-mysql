@@ -55,4 +55,33 @@ class NodeSqlParserAdapterTest extends TestCase
 
 		$this->assertSame([], $errors);
 	}
+
+	public function testValidateBatchPreservesOrderAndMapsEachQueryIndependently(): void
+	{
+		$nodeSqlParserAdapter = new NodeSqlParserAdapter('transactsql');
+
+		if (!$nodeSqlParserAdapter->isAvailable()) {
+			$this->markTestSkipped('Node.js / sql-cli dependencies are not installed');
+		}
+
+		$results = $nodeSqlParserAdapter->validateBatch([
+			'SELECT TOP 10 id FROM users',
+			'SELECT * FROM',
+			'SELECT [bad FROM users',
+		]);
+
+		$this->assertCount(3, $results);
+		$this->assertSame([], $results[0]);
+		$this->assertNotSame([], $results[1]);
+		$this->assertNotSame([], $results[2]);
+		$this->assertSame(1, $results[1][0]['sqlLine']);
+		$this->assertSame(1, $results[2][0]['sqlLine']);
+	}
+
+	public function testValidateBatchOnEmptyArrayReturnsEmptyArray(): void
+	{
+		$nodeSqlParserAdapter = new NodeSqlParserAdapter('transactsql');
+
+		$this->assertSame([], $nodeSqlParserAdapter->validateBatch([]));
+	}
 }

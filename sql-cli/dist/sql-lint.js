@@ -44847,29 +44847,37 @@ function readStdin() {
     process.stdin.on("error", reject);
   });
 }
-function printResult(errors) {
-  process.stdout.write(JSON.stringify({ errors }));
+function printResults(results) {
+  process.stdout.write(JSON.stringify({ results }));
+}
+function errorResult(message) {
+  return { errors: [{ message, line: null }] };
 }
 readStdin().then((raw) => {
   let payload;
   try {
     payload = JSON.parse(raw);
   } catch (parseError) {
-    printResult([{ message: `Invalid JSON payload: ${parseError.message}`, line: null }]);
+    printResults([errorResult(`Invalid JSON payload: ${parseError.message}`)]);
     return;
   }
   const parser = new Parser();
-  try {
-    parser.astify(payload.sql, { database: payload.dialect });
-    printResult([]);
-  } catch (sqlError) {
-    printResult([
-      {
-        message: sqlError.message,
-        line: sqlError.location && sqlError.location.start ? sqlError.location.start.line : null
-      }
-    ]);
-  }
+  const results = payload.queries.map((sql) => {
+    try {
+      parser.astify(sql, { database: payload.dialect });
+      return { errors: [] };
+    } catch (sqlError) {
+      return {
+        errors: [
+          {
+            message: sqlError.message,
+            line: sqlError.location && sqlError.location.start ? sqlError.location.start.line : null
+          }
+        ]
+      };
+    }
+  });
+  printResults(results);
 }).catch((error) => {
-  printResult([{ message: `sql-lint failed: ${error.message}`, line: null }]);
+  printResults([errorResult(`sql-lint failed: ${error.message}`)]);
 });

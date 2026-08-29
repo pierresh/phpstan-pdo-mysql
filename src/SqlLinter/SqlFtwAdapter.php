@@ -41,6 +41,16 @@ class SqlFtwAdapter implements SqlLinterInterface
 	}
 
 	/**
+	 * @param list<string> $sqlQueries
+	 * @return list<array<array{message: string, sqlLine: int|null}>>
+	 */
+	public function validateBatch(array $sqlQueries): array
+	{
+		// SQLFTW runs in-process (no external process to batch), so this is just a loop.
+		return array_map($this->validate(...), $sqlQueries);
+	}
+
+	/**
 	 * Parse SQL query using SQLFTW parser
 	 *
 	 * @return iterable<mixed>

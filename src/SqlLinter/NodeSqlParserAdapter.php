@@ -23,30 +23,62 @@ class NodeSqlParserAdapter implements SqlLinterInterface
 
 	public function validate(string $sqlQuery): array
 	{
-		if (mb_strlen($sqlQuery) > self::MAX_QUERY_LENGTH) {
-			return [];
-		}
-
-		if (!$this->isAvailable()) {
-			return [];
-		}
-
-		$sanitizedSql = $this->replacePlaceholdersOutsideQuotes($sqlQuery);
-
-		$output = $this->runCli($sanitizedSql);
-
-		if ($output === null) {
-			return [];
-		}
-
-		return $this->parseCliOutput($output);
+		return $this->validateBatch([$sqlQuery])[0] ?? [];
 	}
 
-	private function runCli(string $sqlQuery): ?string
+	/**
+	 * @param list<string> $sqlQueries
+	 * @return list<array<array{message: string, sqlLine: int|null}>>
+	 */
+	public function validateBatch(array $sqlQueries): array
+	{
+		$results = array_fill(0, count($sqlQueries), []);
+
+		if (!$this->isAvailable()) {
+			return $results;
+		}
+
+		// Queries over MAX_QUERY_LENGTH are skipped (left as []) rather than sent to
+		// the CLI, but the batch is still sent for whatever's left under that limit.
+		$sentPositionToOriginalIndex = [];
+		$sanitizedQueries = [];
+		foreach ($sqlQueries as $index => $sqlQuery) {
+			if (mb_strlen($sqlQuery) > self::MAX_QUERY_LENGTH) {
+				continue;
+			}
+
+			$sentPositionToOriginalIndex[] = $index;
+			$sanitizedQueries[] = $this->replacePlaceholdersOutsideQuotes($sqlQuery);
+		}
+
+		if ($sanitizedQueries === []) {
+			return $results;
+		}
+
+		$output = $this->runCli($sanitizedQueries);
+
+		if ($output === null) {
+			return $results;
+		}
+
+		foreach ($this->parseCliOutput($output) as $sentPosition => $errors) {
+			$originalIndex = $sentPositionToOriginalIndex[$sentPosition] ?? null;
+			if ($originalIndex !== null) {
+				$results[$originalIndex] = $errors;
+			}
+		}
+
+		return $results;
+	}
+
+	/**
+	 * @param list<string> $sqlQueries
+	 */
+	private function runCli(array $sqlQueries): ?string
 	{
 		$payload = json_encode([
 			'dialect' => $this->dialect,
-			'sql' => $sqlQuery,
+			'queries' => $sqlQueries,
 		]);
 
 		if ($payload === false) {
@@ -82,26 +114,31 @@ class NodeSqlParserAdapter implements SqlLinterInterface
 	}
 
 	/**
-	 * @return array<array{message: string, sqlLine: int|null}>
+	 * @return list<array<array{message: string, sqlLine: int|null}>>
 	 */
 	private function parseCliOutput(string $output): array
 	{
-		/** @var array{errors?: array<array{message: string, line: int|null}>}|null $decoded */
+		/** @var array{results?: array<array{errors: array<array{message: string, line: int|null}>}>}|null $decoded */
 		$decoded = json_decode($output, true);
 
-		if (!is_array($decoded) || !isset($decoded['errors'])) {
+		if (!is_array($decoded) || !isset($decoded['results'])) {
 			return [];
 		}
 
-		$errors = [];
-		foreach ($decoded['errors'] as $error) {
-			$errors[] = [
-				'message' => $error['message'],
-				'sqlLine' => $error['line'],
-			];
+		$resultsByQuery = [];
+		foreach ($decoded['results'] as $result) {
+			$errors = [];
+			foreach ($result['errors'] as $error) {
+				$errors[] = [
+					'message' => $error['message'],
+					'sqlLine' => $error['line'],
+				];
+			}
+
+			$resultsByQuery[] = $errors;
 		}
 
-		return $errors;
+		return $resultsByQuery;
 	}
 
 	/**

@@ -47,6 +47,8 @@ parameters:
 
 **Requirements for `mssql`/`postgresql`:** a `node` executable on `PATH`. No `npm install` is needed - `sql-cli/dist/sql-lint.js` is a self-contained bundle committed to this repo. If `node` isn't available, this rule silently skips validation rather than erroring (same graceful degradation as a missing SQLFTW install).
 
+**Performance:** unlike SQLFTW (in-process, sub-millisecond per query), `mssql`/`postgresql` validation shells out to a `node` process. To keep that affordable on large codebases, Rule 1 batches every `prepare()`/`query()` call found in a class into a single `node` invocation instead of spawning one process per query - so cost scales with the number of classes that talk to the database, not the number of queries.
+
 **Known limitations of the `mssql`/`postgresql` dialects:**
 
 - `mssql`: `MERGE` statements are not supported by the underlying parser and will be reported as syntax errors even when valid - avoid enabling this dialect on code that uses `MERGE`, or expect false positives there.

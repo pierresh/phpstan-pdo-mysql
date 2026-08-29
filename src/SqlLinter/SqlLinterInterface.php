@@ -19,6 +19,18 @@ interface SqlLinterInterface
 	public function validate(string $sqlQuery): array;
 
 	/**
+	 * Validate multiple SQL queries in one call.
+	 *
+	 * This exists so adapters that shell out to an external process (e.g. Node)
+	 * can batch a whole class's worth of queries into a single invocation instead
+	 * of spawning one process per query - in-process adapters can just loop.
+	 *
+	 * @param list<string> $sqlQueries
+	 * @return list<array<array{message: string, sqlLine: int|null}>> One result list per input query, same order
+	 */
+	public function validateBatch(array $sqlQueries): array;
+
+	/**
 	 * Check if the linter library is available.
 	 *
 	 * @return bool True if the underlying parser library is installed

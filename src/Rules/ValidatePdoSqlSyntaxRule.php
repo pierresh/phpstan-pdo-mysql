@@ -7,6 +7,7 @@ use PhpParser\Node\Expr\Assign;
 use PhpParser\Node\Expr\MethodCall;
 use PhpParser\Node\Expr\Variable;
 use PhpParser\Node\Scalar\String_;
+use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\ClassMethod;
 use PHPStan\Analyser\Scope;
 use PHPStan\Rules\IdentifierRuleError;
@@ -23,7 +24,13 @@ use Pierresh\PhpStanPdoMysql\SqlLinter\SqlLinterInterface;
  * 1. Direct string literals: $db->prepare("SELECT ...")
  * 2. Variables: $sql = "SELECT ..."; $db->prepare($sql)
  *
- * @implements Rule<ClassMethod>
+ * Node type is ClassLike (not ClassMethod): every prepare()/query() call found across
+ * a whole class/trait is collected first and validated in one SqlLinterInterface::validateBatch()
+ * call, instead of one per method. For adapters that shell out to an external process
+ * (NodeSqlParserAdapter), that's the difference between one process spawn per class and
+ * one per query - the latter doesn't scale on a large codebase.
+ *
+ * @implements Rule<ClassLike>
  */
 class ValidatePdoSqlSyntaxRule implements Rule
 {
@@ -33,19 +40,42 @@ class ValidatePdoSqlSyntaxRule implements Rule
 
 	public function getNodeType(): string
 	{
-		return ClassMethod::class;
+		return ClassLike::class;
 	}
 
 	/** @return list<IdentifierRuleError> */
 	public function processNode(Node $node, Scope $scope): array
 	{
+		if (!$this->sqlLinter->isAvailable()) {
+			// Silently skip if not installed - don't show warnings
+			return [];
+		}
+
+		/** @var list<array{sql: string, line: int, methodName: string}> $calls */
+		$calls = [];
+
+		foreach ($node->getMethods() as $classMethod) {
+			// First pass: collect all variable assignments with SQL strings
+			$sqlVariables = $this->extractSqlVariables($classMethod);
+
+			// Second pass: find all prepare()/query() calls in this method
+			$this->findPrepareQueryCalls($classMethod, $sqlVariables, $calls);
+		}
+
+		if ($calls === []) {
+			return [];
+		}
+
+		$sqlQueries = array_map(static fn (array $call): string => $call['sql'], $calls);
+		$batchResults = $this->sqlLinter->validateBatch($sqlQueries);
+
 		$errors = [];
-
-		// First pass: collect all variable assignments with SQL strings
-		$sqlVariables = $this->extractSqlVariables($node);
-
-		// Second pass: find all prepare()/query() calls and validate
-		$this->findPrepareQueryCalls($node, $sqlVariables, $errors);
+		foreach ($calls as $index => $call) {
+			$errors = array_merge(
+				$errors,
+				$this->buildErrors($batchResults[$index] ?? [], $call['line'], $call['methodName']),
+			);
+		}
 
 		return $errors;
 	}
@@ -174,31 +204,31 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	}
 
 	/**
-	 * Find all prepare() and query() calls and validate their SQL
+	 * Find all prepare() and query() calls and record their SQL for later batch validation
 	 *
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
-	 * @param list<IdentifierRuleError> &$errors
+	 * @param list<array{sql: string, line: int, methodName: string}> &$calls
 	 */
 	private function findPrepareQueryCalls(
 		Node $node,
 		array $sqlVariables,
-		array &$errors,
+		array &$calls,
 	): void {
-		$this->processDirectMethodCall($node, $sqlVariables, $errors);
-		$this->processAssignmentMethodCall($node, $sqlVariables, $errors);
-		$this->recurseIntoChildNodesForValidation($node, $sqlVariables, $errors);
+		$this->processDirectMethodCall($node, $sqlVariables, $calls);
+		$this->processAssignmentMethodCall($node, $sqlVariables, $calls);
+		$this->recurseIntoChildNodesForValidation($node, $sqlVariables, $calls);
 	}
 
 	/**
 	 * Process direct prepare() or query() method calls
 	 *
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
-	 * @param list<IdentifierRuleError> &$errors
+	 * @param list<array{sql: string, line: int, methodName: string}> &$calls
 	 */
 	private function processDirectMethodCall(
 		Node $node,
 		array $sqlVariables,
-		array &$errors,
+		array &$calls,
 	): void {
 		if (!$this->isDirectMethodCallExpression($node)) {
 			return;
@@ -223,7 +253,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 			$node->getStartLine(),
 			$methodName,
 			$sqlVariables,
-			$errors,
+			$calls,
 		);
 	}
 
@@ -252,25 +282,21 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	}
 
 	/**
-	 * Validate the SQL argument from a method call
+	 * Record the SQL argument from a method call for later batch validation
 	 *
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
-	 * @param list<IdentifierRuleError> &$errors
+	 * @param list<array{sql: string, line: int, methodName: string}> &$calls
 	 */
 	private function validateMethodCallArgument(
 		Node\Expr $expr,
 		int $line,
 		string $methodName,
 		array $sqlVariables,
-		array &$errors,
+		array &$calls,
 	): void {
 		// Case 1: Direct string literal
 		if ($expr instanceof String_) {
-			$errors = array_merge($errors, $this->validateSqlQuery(
-				$expr->value,
-				$line,
-				$methodName,
-			));
+			$calls[] = ['sql' => $expr->value, 'line' => $line, 'methodName' => $methodName];
 			return;
 		}
 
@@ -281,11 +307,11 @@ class ValidatePdoSqlSyntaxRule implements Rule
 
 		$varName = $expr->name;
 		if (isset($sqlVariables[$varName])) {
-			$errors = array_merge($errors, $this->validateSqlQuery(
-				$sqlVariables[$varName]['sql'],
-				$line,
-				$methodName,
-			));
+			$calls[] = [
+				'sql' => $sqlVariables[$varName]['sql'],
+				'line' => $line,
+				'methodName' => $methodName,
+			];
 		}
 	}
 
@@ -293,12 +319,12 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	 * Process assignment with prepare() or query() method calls
 	 *
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
-	 * @param list<IdentifierRuleError> &$errors
+	 * @param list<array{sql: string, line: int, methodName: string}> &$calls
 	 */
 	private function processAssignmentMethodCall(
 		Node $node,
 		array $sqlVariables,
-		array &$errors,
+		array &$calls,
 	): void {
 		if (!$this->isAssignmentWithMethodCall($node)) {
 			return;
@@ -325,7 +351,7 @@ class ValidatePdoSqlSyntaxRule implements Rule
 			$node->getStartLine(),
 			$methodName,
 			$sqlVariables,
-			$errors,
+			$calls,
 		);
 	}
 
@@ -342,15 +368,15 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	}
 
 	/**
-	 * Recurse into child nodes for prepare/query validation
+	 * Recurse into child nodes for prepare/query call collection
 	 *
 	 * @param array<string, array{sql: string, line: int}> $sqlVariables
-	 * @param list<IdentifierRuleError> &$errors
+	 * @param list<array{sql: string, line: int, methodName: string}> &$calls
 	 */
 	private function recurseIntoChildNodesForValidation(
 		Node $node,
 		array $sqlVariables,
-		array &$errors,
+		array &$calls,
 	): void {
 		foreach ($node->getSubNodeNames() as $subNodeName) {
 			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
@@ -358,11 +384,11 @@ class ValidatePdoSqlSyntaxRule implements Rule
 			if (is_array($subNode)) {
 				foreach ($subNode as $item) {
 					if ($item instanceof Node) {
-						$this->findPrepareQueryCalls($item, $sqlVariables, $errors);
+						$this->findPrepareQueryCalls($item, $sqlVariables, $calls);
 					}
 				}
 			} elseif ($subNode instanceof Node) {
-				$this->findPrepareQueryCalls($subNode, $sqlVariables, $errors);
+				$this->findPrepareQueryCalls($subNode, $sqlVariables, $calls);
 			}
 		}
 	}
@@ -395,25 +421,17 @@ class ValidatePdoSqlSyntaxRule implements Rule
 	}
 
 	/**
-	 * Validate SQL query and return errors
+	 * Build rule errors from already-fetched linter errors for one query
 	 *
+	 * @param array<array{message: string, sqlLine: int|null}> $linterErrors
 	 * @return list<IdentifierRuleError>
 	 */
-	private function validateSqlQuery(
-		string $sqlQuery,
+	private function buildErrors(
+		array $linterErrors,
 		int $line,
 		string $methodName,
 	): array {
-		// Check if linter is available
-		if (!$this->sqlLinter->isAvailable()) {
-			// Silently skip if not installed - don't show warnings
-			return [];
-		}
-
 		$errors = [];
-
-		// Validate the SQL query using the linter
-		$linterErrors = $this->sqlLinter->validate($sqlQuery);
 
 		foreach ($linterErrors as $linterError) {
 			// Calculate the actual PHP line number based on SQL line
