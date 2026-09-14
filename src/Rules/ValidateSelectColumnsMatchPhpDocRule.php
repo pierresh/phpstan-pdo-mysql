@@ -1540,6 +1540,16 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				&& strncasecmp(substr($normalizedSql, $i), 'FROM ', 5) === 0
 			) {
 				return trim(substr($normalizedSql, $start, $i - $start));
+			} elseif (
+				$depth === 0
+				&& ($i === $start || $normalizedSql[$i - 1] === ' ')
+				&& strncasecmp(substr($normalizedSql, $i), 'UNION', 5) === 0
+				&& ($i + 5 === $len || $normalizedSql[$i + 5] === ' ')
+			) {
+				// The first branch of a UNION may have no FROM clause at all
+				// (e.g. "SELECT 0 AS id UNION ALL SELECT id FROM t") - stop here
+				// instead of letting a later branch's FROM swallow this column list.
+				return trim(substr($normalizedSql, $start, $i - $start));
 			}
 		}
 

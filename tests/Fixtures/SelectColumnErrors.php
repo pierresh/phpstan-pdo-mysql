@@ -587,4 +587,25 @@ class SelectColumnErrors
 			$user = $row;
 		}
 	}
+
+	public function fetchWithUnionFirstBranchHasNoFromMismatch(): void
+	{
+		// First UNION branch is a literal row with no FROM clause. The FROM of the
+		// second branch must not be mistaken for the end of the first branch's
+		// column list - doing so merges both branches together and loses "label".
+		$stmt = $this->db->prepare('
+			SELECT 0 AS id, \'\' AS label
+
+			UNION ALL
+
+			SELECT id, label
+			FROM users
+		');
+		$stmt->execute();
+
+		while ($row = $stmt->fetch()) {
+			/** @var object{id: int, label: string} */
+			$user = $row;
+		}
+	}
 }
