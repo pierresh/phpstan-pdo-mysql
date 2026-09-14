@@ -89,7 +89,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				$typeAliases,
 			);
 
-			$methodErrors = $this->processVarAnnotations($varAnnotations, $seen);
+			$methodErrors = $this->processVarAnnotations($varAnnotations, $seen, $class);
 			$errors = array_merge($errors, $methodErrors);
 		}
 
@@ -99,13 +99,14 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Process var annotations and validate them
 	 *
-	 * @param array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool}> $varAnnotations
+	 * @param array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool, assigned_var: string|null}> $varAnnotations
 	 * @param array<string, bool> &$seen
 	 * @return list<IdentifierRuleError>
 	 */
 	private function processVarAnnotations(
 		array $varAnnotations,
 		array &$seen,
+		Class_ $class,
 	): array {
 		$errors = [];
 
@@ -131,12 +132,27 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				$errors[] = $falseHandlingError;
 			}
 
+			// Properties assigned onto the fetched variable later in the method
+			// (e.g. $item->base64 = ...) are populated by code, not by the query,
+			// and should not be flagged as missing from the SELECT. Also look at
+			// callers of this method, in case the enrichment happens one level up:
+			//   private function getItem(): object { ...; return $item; }
+			//   public function read() { $item = $this->getItem(); $item->base64 = ...; }
+			$enrichedProps = $varAnnotation['assigned_var'] !== null
+				? $this->extractPropertiesAssignedTo($varAnnotation['method'], $varAnnotation['assigned_var'])
+				: [];
+			$enrichedProps = array_merge(
+				$enrichedProps,
+				$this->extractPropertiesAssignedByCallers($class, $varAnnotation['method']),
+			);
+
 			// Validate columns
 			$columnErrors = $this->validateSqlAgainstPhpDoc(
 				$varAnnotation['sql'],
 				$varAnnotation['sql_line'],
 				$varAnnotation['object_shape'],
 				$varAnnotation['var_line'],
+				$enrichedProps,
 			);
 			$errors = array_merge($errors, $columnErrors);
 		}
@@ -147,7 +163,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Generate unique key for annotation to avoid duplicates
 	 *
-	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool} $varAnnotation
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, assigned_var: string|null} $varAnnotation
 	 */
 	private function getAnnotationKey(array $varAnnotation): string
 	{
@@ -161,7 +177,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Validate fetch method if present
 	 *
-	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool} $varAnnotation
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, assigned_var: string|null} $varAnnotation
 	 */
 	private function validateFetchMethod(array $varAnnotation): ?IdentifierRuleError
 	{
@@ -223,7 +239,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * 3. The code checks === false, !== false, or !$var after fetch
 	 * 4. The @var is inside a while loop (false stops execution automatically)
 	 *
-	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool} $varAnnotation
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool, assigned_var: string|null} $varAnnotation
 	 */
 	private function validateFalseHandling(array $varAnnotation): ?IdentifierRuleError
 	{
@@ -803,7 +819,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @param array<string, array{sql: string, line: int, var?: string}> $propertyPreparations
 	 * @param array<string, array<string, string>> $typeAliases
-	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool}>
+	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool, assigned_var: string|null}>
 	 */
 	private function extractVarAnnotations(
 		ClassMethod $classMethod,
@@ -883,6 +899,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					'method' => $classMethod,
 					'in_while_loop' => $varShape['in_while_loop'] ?? false,
 					'in_rowcount_positive_if' => $varShape['in_rowcount_positive_if'] ?? false,
+					'assigned_var' => $varShape['assigned_var'] ?? null,
 				];
 			}
 		}
@@ -893,7 +910,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Recursively collect @var object{...} annotations
 	 *
-	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string|null, is_array_type?: bool, doc_text?: string, in_while_loop?: bool, in_rowcount_positive_if?: bool}> &$varShapes
+	 * @param array<array{line: int, object_shape: array<string, string>, fetch_var: string|null, fetch_method?: string|null, is_array_type?: bool, doc_text?: string, in_while_loop?: bool, in_rowcount_positive_if?: bool, assigned_var?: string|null}> &$varShapes
 	 * @param array<string, array<string, string>> $typeAliases
 	 * @param array{var: string, method: string}|null $whileLoopContext Context when processing while loop body
 	 */
@@ -994,6 +1011,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						'doc_text' => $docText,
 						'in_while_loop' => $inWhileLoop,
 						'in_rowcount_positive_if' => $inRowcountPositiveIf,
+						'assigned_var' => $fetchInfo['target_var'] ?? null,
 					];
 				}
 			}
@@ -1069,7 +1087,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * Extract fetch info from while loop condition
 	 * Pattern: while ($user = $stmt->fetch())
 	 *
-	 * @return array{var: string, method: string}|array{}
+	 * @return array{var: string, method: string, target_var?: string}|array{}
 	 */
 	private function extractFetchInfoFromWhileCondition(Node\Stmt\While_ $while): array
 	{
@@ -1102,10 +1120,17 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			return [];
 		}
 
-		return [
+		$result = [
 			'var' => $methodCall->var->name,
 			'method' => $methodName,
 		];
+
+		// Get the variable receiving the fetched row (e.g., $row in while ($row = $stmt->fetch()))
+		if ($assign->var instanceof Variable && is_string($assign->var->name)) {
+			$result['target_var'] = $assign->var->name;
+		}
+
+		return $result;
 	}
 
 	/**
@@ -1135,7 +1160,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * Or: comment followed by return like return stmt->fetch()
 	 * We want to extract "stmt" (the variable being fetched from) and the method name
 	 *
-	 * @return array{var?: string, method?: string}
+	 * @return array{var?: string, method?: string, target_var?: string}
 	 */
 	private function getFetchInfoAfterComment(Node $node): array
 	{
@@ -1156,6 +1181,11 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 						$varName = $this->extractFetchTarget($methodCall);
 						if ($varName !== null) {
 							$result['var'] = $varName;
+						}
+
+						// Extract the variable receiving the fetched row (e.g., $item in $item = $stmt->fetch())
+						if ($assign->var instanceof Variable && is_string($assign->var->name)) {
+							$result['target_var'] = $assign->var->name;
 						}
 
 						return $result;
@@ -1276,9 +1306,128 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	}
 
 	/**
+	 * Find properties assigned onto the given variable anywhere in the method,
+	 * e.g. $item->base64 = ...; These are populated by code after fetch(), not
+	 * by the SQL query, so they should not be flagged as missing from the SELECT.
+	 *
+	 * @return array<string>
+	 */
+	private function extractPropertiesAssignedTo(ClassMethod $classMethod, string $varName): array
+	{
+		$properties = [];
+
+		foreach ($classMethod->getStmts() ?? [] as $stmt) {
+			$this->findPropertyAssignmentsRecursive($stmt, $varName, $properties);
+		}
+
+		return array_unique($properties);
+	}
+
+	/**
+	 * @param array<string> &$properties
+	 */
+	private function findPropertyAssignmentsRecursive(Node $node, string $varName, array &$properties): void
+	{
+		if (
+			$node instanceof Node\Expr\Assign
+			&& $node->var instanceof PropertyFetch
+			&& $node->var->var instanceof Variable
+			&& $node->var->var->name === $varName
+			&& $node->var->name instanceof Node\Identifier
+		) {
+			$properties[] = $node->var->name->toString();
+		}
+
+		foreach ($node->getSubNodeNames() as $subNodeName) {
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
+
+			if (is_array($subNode)) {
+				foreach ($subNode as $item) {
+					if ($item instanceof Node) {
+						$this->findPropertyAssignmentsRecursive($item, $varName, $properties);
+					}
+				}
+			} elseif ($subNode instanceof Node) {
+				$this->findPropertyAssignmentsRecursive($subNode, $varName, $properties);
+			}
+		}
+	}
+
+	/**
+	 * Find properties assigned in other methods of the class onto the variable
+	 * that receives this method's return value, e.g.:
+	 *   private function getItem(): object { ...; return $item; }
+	 *   public function read() { $item = $this->getItem(); $item->base64 = ...; }
+	 *
+	 * @return array<string>
+	 */
+	private function extractPropertiesAssignedByCallers(Class_ $class, ClassMethod $classMethod): array
+	{
+		$methodName = $classMethod->name->toString();
+		$properties = [];
+
+		foreach ($class->getMethods() as $callerMethod) {
+			if ($callerMethod === $classMethod) {
+				continue;
+			}
+
+			$targetVars = [];
+			foreach ($callerMethod->getStmts() ?? [] as $stmt) {
+				$this->findMethodCallAssignmentsRecursive($stmt, $methodName, $targetVars);
+			}
+
+			foreach ($targetVars as $targetVar) {
+				$properties = array_merge(
+					$properties,
+					$this->extractPropertiesAssignedTo($callerMethod, $targetVar),
+				);
+			}
+		}
+
+		return array_unique($properties);
+	}
+
+	/**
+	 * Find variables assigned from a `$this->methodName(...)` call, e.g. the
+	 * "$item" in "$item = $this->getItem(...)".
+	 *
+	 * @param array<string> &$vars
+	 */
+	private function findMethodCallAssignmentsRecursive(Node $node, string $methodName, array &$vars): void
+	{
+		if (
+			$node instanceof Node\Expr\Assign
+			&& $node->var instanceof Variable
+			&& is_string($node->var->name)
+			&& $node->expr instanceof MethodCall
+			&& $node->expr->var instanceof Variable
+			&& $node->expr->var->name === 'this'
+			&& $node->expr->name instanceof Node\Identifier
+			&& $node->expr->name->toString() === $methodName
+		) {
+			$vars[] = $node->var->name;
+		}
+
+		foreach ($node->getSubNodeNames() as $subNodeName) {
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
+
+			if (is_array($subNode)) {
+				foreach ($subNode as $item) {
+					if ($item instanceof Node) {
+						$this->findMethodCallAssignmentsRecursive($item, $methodName, $vars);
+					}
+				}
+			} elseif ($subNode instanceof Node) {
+				$this->findMethodCallAssignmentsRecursive($subNode, $methodName, $vars);
+			}
+		}
+	}
+
+	/**
 	 * Validate SQL against PHPDoc object shape
 	 *
 	 * @param array<string, string> $objectShape
+	 * @param array<string> $enrichedProps
 	 * @return list<IdentifierRuleError>
 	 */
 	private function validateSqlAgainstPhpDoc(
@@ -1286,6 +1435,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		int $sqlLine,
 		array $objectShape,
 		?int $reportLine = null,
+		array $enrichedProps = [],
 	): array {
 		$errors = [];
 		$reportLine ??= $sqlLine;
@@ -1306,8 +1456,9 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		$expectedProps = array_keys($objectShape);
 		$actualColumns = $selectColumns;
 
-		// Check for missing columns (in PHPDoc but not in SELECT)
-		$missingInSelect = array_diff($expectedProps, $actualColumns);
+		// Check for missing columns (in PHPDoc but not in SELECT), excluding
+		// properties that code assigns onto the row after fetch()
+		$missingInSelect = array_diff($expectedProps, $actualColumns, $enrichedProps);
 		// Calculate extra columns for typo detection (but we won't report them as errors)
 		$extraInSelect = array_diff($actualColumns, $expectedProps);
 		// Check for typos

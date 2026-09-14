@@ -608,4 +608,46 @@ class SelectColumnErrors
 			$user = $row;
 		}
 	}
+
+	public function fetchWithPropertyAssignedAfterFetchNoMismatch(): void
+	{
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		if ($stmt->rowCount() === 0) {
+			return;
+		}
+
+		/** @var object{id: int, name: string, computed: string} */
+		$user = $stmt->fetch();
+
+		// "computed" is populated by code, not by the query - should not be
+		// flagged as missing from the SELECT.
+		$user->computed = strtoupper($user->name);
+	}
+
+	private function getUserForCaller(): object
+	{
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		if ($stmt->rowCount() === 0) {
+			throw new \RuntimeException('not found');
+		}
+
+		/** @var object{id: int, name: string, computed: string} */
+		$user = $stmt->fetch();
+
+		return $user;
+	}
+
+	public function fetchWithPropertyAssignedByCallerNoMismatch(): void
+	{
+		$user = $this->getUserForCaller();
+
+		// "computed" is populated by the caller after the private helper's
+		// fetch() - should not be flagged as missing from the SELECT inside
+		// getUserForCaller().
+		$user->computed = strtoupper($user->name);
+	}
 }
