@@ -609,6 +609,27 @@ class SelectColumnErrors
 		}
 	}
 
+	public function fetchWithUnionFirstBranchHasNoFromStillFlagsRealMismatch(): void
+	{
+		// Same UNION shape as above, but this time the PHPDoc expects a column
+		// that genuinely isn't in either branch - the UNION fix must not
+		// swallow real mismatches along with fixing the false positive.
+		$stmt = $this->db->prepare('
+			SELECT 0 AS id, \'\' AS label
+
+			UNION ALL
+
+			SELECT id, label
+			FROM users
+		');
+		$stmt->execute();
+
+		while ($row = $stmt->fetch()) {
+			/** @var object{id: int, label: string, missing_col: string} */
+			$user = $row;
+		}
+	}
+
 	public function fetchWithPropertyAssignedAfterFetchNoMismatch(): void
 	{
 		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
@@ -623,6 +644,24 @@ class SelectColumnErrors
 
 		// "computed" is populated by code, not by the query - should not be
 		// flagged as missing from the SELECT.
+		$user->computed = strtoupper($user->name);
+	}
+
+	public function fetchWithPropertyAssignedAfterFetchStillFlagsUnrelatedMissing(): void
+	{
+		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
+		$stmt->execute(['id' => 1]);
+
+		if ($stmt->rowCount() === 0) {
+			return;
+		}
+
+		/** @var object{id: int, name: string, computed: string, missing_col: string} */
+		$user = $stmt->fetch();
+
+		// "computed" is enriched after fetch and must be excluded, but
+		// "missing_col" is neither selected nor assigned anywhere - the
+		// exclusion must be precise per-property, not a blanket suppression.
 		$user->computed = strtoupper($user->name);
 	}
 

@@ -140,8 +140,16 @@ class ValidateSelectColumnsMatchPhpDocRuleTest extends RuleTestCase
 				586,
 			],
 			[
-				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 674)',
-				681,
+				'SELECT column missing: PHPDoc expects property "missing_col" but it is not in the SELECT query (line 617)',
+				628,
+			],
+			[
+				'SELECT column missing: PHPDoc expects property "missing_col" but it is not in the SELECT query (line 652)',
+				659,
+			],
+			[
+				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 713)',
+				720,
 			],
 		]);
 	}
