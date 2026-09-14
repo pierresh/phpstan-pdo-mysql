@@ -265,6 +265,13 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			return null;
 		}
 
+		// Skip validation for guaranteed single-row aggregate queries, e.g.
+		// SELECT COUNT(*) FROM ... with no GROUP BY - these always return
+		// exactly one row, even when nothing matches the WHERE clause.
+		if ($this->isGuaranteedSingleRowAggregate($varAnnotation['sql'])) {
+			return null;
+		}
+
 		// Check if PHPDoc includes |false
 		// Clean multi-line doc comments before checking: remove leading "* " and collapse whitespace
 		// so that "} | false" on a different line from "@var object{" is still found.
@@ -1705,6 +1712,99 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		}
 
 		return null;
+	}
+
+	/**
+	 * True when the query is a single-row aggregate: every SELECT expression
+	 * contains an aggregate function (COUNT/SUM/AVG/MIN/MAX), and there is no
+	 * GROUP BY or UNION that could turn it into zero or many rows. Such
+	 * queries always return exactly one row, even when nothing matches the
+	 * WHERE clause, so fetch()/fetchObject() cannot return false.
+	 */
+	private function isGuaranteedSingleRowAggregate(string $sql): bool
+	{
+		$normalized = (string) preg_replace('/--.*$/m', '', $sql);
+		$normalized = (string) preg_replace('/\/\*.*?\*\//s', '', $normalized);
+		$normalized = (string) preg_replace('/\s+/', ' ', trim($normalized));
+
+		if (stripos($normalized, 'GROUP BY') !== false || stripos($normalized, 'UNION') !== false) {
+			return false;
+		}
+
+		$selectPart = $this->extractSelectPart($normalized);
+		if ($selectPart === null) {
+			// No top-level FROM found. This can happen when the FROM clause is
+			// entirely inside an interpolated expression whose dynamic part was
+			// dropped (e.g. "SELECT COUNT(*) {$this->buildFromSql()}"). If FROM
+			// genuinely isn't present anywhere, treat the rest of the string as
+			// the column list; otherwise be conservative and bail out.
+			if (stripos($normalized, 'FROM') !== false) {
+				return false;
+			}
+
+			$matchCount = preg_match('/^\s*SELECT\s+(.+)$/i', $normalized, $matches);
+			if ($matchCount !== 1) {
+				return false;
+			}
+
+			$selectPart = $matches[1];
+		}
+
+		if (trim($selectPart) === '') {
+			return false;
+		}
+
+		$expressions = $this->splitTopLevelByComma($selectPart);
+		if ($expressions === []) {
+			return false;
+		}
+
+		foreach ($expressions as $expression) {
+			if (!(bool) preg_match('/\b(?:COUNT|SUM|AVG|MIN|MAX)\s*\(/i', $expression)) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Split a comma-separated expression list, ignoring commas nested inside
+	 * parentheses (e.g. function call arguments).
+	 *
+	 * @return array<string>
+	 */
+	private function splitTopLevelByComma(string $expr): array
+	{
+		$parts = [];
+		$depth = 0;
+		$current = '';
+		$len = strlen($expr);
+
+		for ($i = 0; $i < $len; $i++) {
+			$ch = $expr[$i];
+
+			if ($ch === '(') {
+				$depth++;
+			} elseif ($ch === ')') {
+				$depth--;
+			}
+
+			if ($ch === ',' && $depth === 0) {
+				$parts[] = trim($current);
+				$current = '';
+
+				continue;
+			}
+
+			$current .= $ch;
+		}
+
+		if (trim($current) !== '') {
+			$parts[] = trim($current);
+		}
+
+		return $parts;
 	}
 
 	/**

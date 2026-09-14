@@ -650,4 +650,56 @@ class SelectColumnErrors
 		// getUserForCaller().
 		$user->computed = strtoupper($user->name);
 	}
+
+	public function fetchSingleRowAggregateNoMismatch(): void
+	{
+		// A SELECT made only of aggregate expressions with no GROUP BY always
+		// returns exactly one row (even with zero matching rows), so fetch()
+		// cannot return false here - no |false or guard should be required.
+		$stmt = $this->db->prepare('
+			SELECT COUNT(*) AS total, COUNT(CASE WHEN active = 1 THEN 1 END) AS active_total
+			FROM users
+			WHERE id = :id
+		');
+		$stmt->execute(['id' => 1]);
+
+		/** @var object{total: int, active_total: int} */
+		$user = $stmt->fetch();
+	}
+
+	public function fetchAggregateWithGroupByStillFlagged(): void
+	{
+		// GROUP BY means the query can return zero or many rows, so the
+		// single-row-aggregate exception must not apply here.
+		$stmt = $this->db->prepare('
+			SELECT team_id, COUNT(*) AS total
+			FROM users
+			GROUP BY team_id
+		');
+		$stmt->execute();
+
+		/** @var object{team_id: int, total: int} */
+		$user = $stmt->fetch();
+	}
+
+	private function buildScopeFromSql(): string
+	{
+		return 'FROM users WHERE active = 1';
+	}
+
+	public function fetchSingleRowAggregateWithInterpolatedFromNoMismatch(): void
+	{
+		// The FROM clause is entirely inside the interpolated method call, so
+		// after dropping the dynamic part the literal SQL has no FROM at all -
+		// the aggregate-only check must still recognize this as a single-row
+		// aggregate instead of bailing out because it found no FROM.
+		$stmt = $this->db->prepare("
+			SELECT COUNT(*) AS total
+			{$this->buildScopeFromSql()}
+		");
+		$stmt->execute();
+
+		/** @var object{total: int} */
+		$user = $stmt->fetch();
+	}
 }
