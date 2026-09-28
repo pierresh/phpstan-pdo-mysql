@@ -154,6 +154,44 @@ class ValidateSelectColumnsMatchPhpDocRuleTest extends RuleTestCase
 		]);
 	}
 
+	public function testLoopsAndRowCountGuards(): void
+	{
+		$this->analyse([__DIR__ . '/../Fixtures/SelectColumnLoopErrors.php'], [
+			[
+				'SELECT column missing: PHPDoc expects property "phone" but it is not in the SELECT query (line 14)',
+				36,
+			],
+			[
+				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 43)',
+				51,
+			],
+			[
+				'SELECT column missing: PHPDoc expects property "status" but it is not in the SELECT query (line 43)',
+				51,
+			],
+			[
+				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 111)',
+				115,
+			],
+			[
+				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 121)',
+				132,
+			],
+			[
+				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 139)',
+				142,
+			],
+			[
+				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 152)',
+				161,
+			],
+			[
+				'SELECT column missing: PHPDoc expects property "status" but it is not in the SELECT query (line 168)',
+				176,
+			],
+		]);
+	}
+
 	public static function getAdditionalConfigFiles(): array
 	{
 		return [

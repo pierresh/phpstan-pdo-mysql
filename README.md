@@ -307,6 +307,28 @@ $user = $stmt->fetch(); // Safe - won't execute if no rows
 ```
 
 ```php
+// ✅ Correct: Inside a loop, continue/break works too
+foreach ($userIds as $userId) {
+    $stmt->execute(['id' => $userId]);
+
+    if ($stmt->rowCount() === 0) {
+        continue;
+    }
+
+    /** @var object{id: int, name: string} */
+    $user = $stmt->fetch();
+}
+
+// ✅ Correct: Fetch inside a positive rowCount() check
+if ($stmt->rowCount() === 1) { // or > 0, >= 1, !== 0
+    /** @var object{id: int, name: string} */
+    $user = $stmt->fetch();
+}
+```
+
+The rowCount() guard must be on the **same statement** as the fetch and placed **before** it (in the same block or an enclosing one). A guard on another statement, in another if/else branch, or after the fetch does not count.
+
+```php
 // ✅ Correct: Check for false after fetch
 $stmt = $db->prepare("SELECT id, name FROM users WHERE id = :id");
 $stmt->execute(['id' => 1]);

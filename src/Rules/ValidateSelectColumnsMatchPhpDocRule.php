@@ -99,7 +99,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	/**
 	 * Process var annotations and validate them
 	 *
-	 * @param array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool, assigned_var: string|null}> $varAnnotations
+	 * @param array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool, assigned_var: string|null, fetch_var: string|null}> $varAnnotations
 	 * @param array<string, bool> &$seen
 	 * @return list<IdentifierRuleError>
 	 */
@@ -239,7 +239,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * 3. The code checks === false, !== false, or !$var after fetch
 	 * 4. The @var is inside a while loop (false stops execution automatically)
 	 *
-	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool, assigned_var: string|null} $varAnnotation
+	 * @param array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool, assigned_var: string|null, fetch_var: string|null} $varAnnotation
 	 */
 	private function validateFalseHandling(array $varAnnotation): ?IdentifierRuleError
 	{
@@ -293,8 +293,22 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			return null; // Has |false, no error
 		}
 
+		// Check for a rowCount() guard on the same statement, placed before the
+		// fetch in the same block or in an enclosing one
+		$fetchVar = $varAnnotation['fetch_var'];
+		if (
+			$fetchVar !== null
+			&& $this->hasRowCountGuardBefore(
+				$varAnnotation['method']->getStmts() ?? [],
+				$fetchVar,
+				$varAnnotation['var_line'],
+			)
+		) {
+			return null;
+		}
+
 		// Check if code has false-handling nearby
-		if ($this->hasFalseHandlingInMethod($varAnnotation['method'])) {
+		if ($this->hasFalseHandlingInMethod($varAnnotation['method'], $fetchVar === null)) {
 			return null; // Has false handling, no error
 		}
 
@@ -315,8 +329,11 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 * - rowCount() checks that throw/return before fetch
 	 * - rowCount variables checked in if conditions with throw/return
 	 * - === false, !== false, or !$var checks after fetch
+	 *
+	 * @param bool $acceptAnyRowCountGuard When the fetched statement is unknown, accept a
+	 *                                     rowCount() guard on any statement
 	 */
-	private function hasFalseHandlingInMethod(ClassMethod $classMethod): bool
+	private function hasFalseHandlingInMethod(ClassMethod $classMethod, bool $acceptAnyRowCountGuard): bool
 	{
 		$statements = $classMethod->getStmts() ?? [];
 
@@ -328,7 +345,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			// Fast check: is this an if statement?
 			if ($statement instanceof Node\Stmt\If_) {
 				// Check for rowCount() with throw/return (most specific check first)
-				if ($this->isRowCountCheckWithThrowOrReturn($statement)) {
+				if ($acceptAnyRowCountGuard && $this->isRowCountCheckWithThrowOrReturn($statement)) {
 					return true;
 				}
 
@@ -484,6 +501,155 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		}
 
 		return false;
+	}
+
+	/**
+	 * Check if a rowCount() guard on $fetchVar exits early before the @var line,
+	 * either in the same block or in an enclosing block (loop body, if branch...)
+	 *
+	 * Only the path of blocks leading to the @var is walked, so the cost is bounded
+	 * by the nesting depth times the number of sibling statements.
+	 *
+	 * @param array<mixed> $statements
+	 */
+	private function hasRowCountGuardBefore(array $statements, string $fetchVar, int $varLine): bool
+	{
+		foreach ($statements as $statement) {
+			if (!$statement instanceof Node\Stmt) {
+				continue;
+			}
+
+			if ($statement->getEndLine() < $varLine) {
+				if (
+					$statement instanceof Node\Stmt\If_
+					&& $this->isEarlyExitRowCountGuard($statement, $fetchVar)
+				) {
+					return true;
+				}
+
+				continue;
+			}
+
+			// First statement reaching the @var line: it is either the annotated
+			// statement itself or a compound statement containing it
+			return $this->hasRowCountGuardInNestedBlocks($statement, $fetchVar, $varLine);
+		}
+
+		return false;
+	}
+
+	/**
+	 * Descend into the one nested block of $node that holds the @var line
+	 * (blocks never overlap, so sibling branches are skipped)
+	 */
+	private function hasRowCountGuardInNestedBlocks(Node $node, string $fetchVar, int $varLine): bool
+	{
+		foreach ($node->getSubNodeNames() as $subNodeName) {
+			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
+
+			if ($subNode instanceof Node) {
+				$subNode = [$subNode];
+			}
+
+			if (!is_array($subNode) || $subNode === []) {
+				continue;
+			}
+
+			$first = reset($subNode);
+			$last = end($subNode);
+
+			// Skip expressions (conditions, the annotated fetch itself) and blocks
+			// that do not hold the @var line
+			if (
+				!$first instanceof Node
+				|| !$last instanceof Node
+				|| $first instanceof Node\Expr
+				|| $this->getStartLineWithComments($first) > $varLine
+				|| $last->getEndLine() < $varLine
+			) {
+				continue;
+			}
+
+			if ($first instanceof Node\Stmt) {
+				return $this->hasRowCountGuardBefore($subNode, $fetchVar, $varLine);
+			}
+
+			// Branches like else/elseif/catch/case hold their own statement lists
+			foreach ($subNode as $item) {
+				if (
+					$item instanceof Node
+					&& $this->getStartLineWithComments($item) <= $varLine
+					&& $item->getEndLine() >= $varLine
+				) {
+					return $this->hasRowCountGuardInNestedBlocks($item, $fetchVar, $varLine);
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Start line of a node, including its leading comments (e.g. a @var docblock)
+	 */
+	private function getStartLineWithComments(Node $node): int
+	{
+		$comments = $node->getComments();
+
+		return $comments === []
+			? $node->getStartLine()
+			: min($comments[0]->getStartLine(), $node->getStartLine());
+	}
+
+	/**
+	 * Check for: if ($stmt->rowCount() === 0) { return|throw|continue|break; }
+	 * The condition may also be one side of an ||, e.g. execute() === false || rowCount() === 0
+	 */
+	private function isEarlyExitRowCountGuard(Node\Stmt\If_ $if, string $fetchVar): bool
+	{
+		if (!$this->conditionHasRowCountOn($if->cond, $fetchVar)) {
+			return false;
+		}
+
+		foreach ($if->stmts as $stmt) {
+			if (
+				$stmt instanceof Node\Stmt\Return_
+				|| $stmt instanceof Node\Stmt\Continue_
+				|| $stmt instanceof Node\Stmt\Break_
+				|| ($stmt instanceof Node\Stmt\Expression && $stmt->expr instanceof Node\Expr\Throw_)
+			) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private function conditionHasRowCountOn(Node\Expr $expr, string $fetchVar): bool
+	{
+		if ($expr instanceof Node\Expr\BinaryOp\BooleanOr || $expr instanceof Node\Expr\BinaryOp\LogicalOr) {
+			return $this->conditionHasRowCountOn($expr->left, $fetchVar)
+				|| $this->conditionHasRowCountOn($expr->right, $fetchVar);
+		}
+
+		if ($expr instanceof Node\Expr\BooleanNot) {
+			return $this->isRowCountCallOn($expr->expr, $fetchVar);
+		}
+
+		if ($expr instanceof Node\Expr\BinaryOp) {
+			return $this->isRowCountCallOn($expr->left, $fetchVar)
+				|| $this->isRowCountCallOn($expr->right, $fetchVar);
+		}
+
+		return false;
+	}
+
+	private function isRowCountCallOn(Node\Expr $expr, string $fetchVar): bool
+	{
+		return $expr instanceof MethodCall
+			&& $expr->name instanceof Node\Identifier
+			&& $expr->name->toString() === 'rowCount'
+			&& $this->extractFetchTarget($expr) === $fetchVar;
 	}
 
 	/**
@@ -826,7 +992,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 *
 	 * @param array<string, array{sql: string, line: int, var?: string}> $propertyPreparations
 	 * @param array<string, array<string, string>> $typeAliases
-	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool, assigned_var: string|null}>
+	 * @return array<array{sql: string, sql_line: int, object_shape: array<string, string>, var_line: int, fetch_method: string|null, is_array_type: bool, doc_text: string|null, method: ClassMethod, in_while_loop: bool, in_rowcount_positive_if: bool, assigned_var: string|null, fetch_var: string|null}>
 	 */
 	private function extractVarAnnotations(
 		ClassMethod $classMethod,
@@ -907,6 +1073,7 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					'in_while_loop' => $varShape['in_while_loop'] ?? false,
 					'in_rowcount_positive_if' => $varShape['in_rowcount_positive_if'] ?? false,
 					'assigned_var' => $varShape['assigned_var'] ?? null,
+					'fetch_var' => $varShape['fetch_var'],
 				];
 			}
 		}
@@ -929,7 +1096,8 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		bool $inRowcountPositiveIf = false,
 	): void {
 		// Special handling for while loops: while ($user = $stmt->fetch()) { /** @var ... */ ... }
-		if ($node instanceof Node\Stmt\While_ && $whileLoopContext === null) {
+		// A nested fetch loop replaces the context of the enclosing one
+		if ($node instanceof Node\Stmt\While_) {
 			$whileLoopFetchInfo = $this->extractFetchInfoFromWhileCondition($node);
 			if ($whileLoopFetchInfo !== []) {
 				// Process the while loop body with the fetch info from the condition
@@ -998,15 +1166,13 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 				if ($objectShape !== null) {
 					$varLine = $this->getVarAnnotationLine($docComment);
 
-					// Determine fetch info based on context
-					if ($whileLoopContext !== null) {
-						// Inside while loop - use context from while condition
+					// Determine fetch info: a fetch on the annotated statement itself
+					// wins, otherwise inside a while loop use the loop's fetch
+					$fetchInfo = $this->getFetchInfoAfterComment($node);
+					$inWhileLoop = false;
+					if ($fetchInfo === [] && $whileLoopContext !== null) {
 						$fetchInfo = $whileLoopContext;
 						$inWhileLoop = true;
-					} else {
-						// Normal case - try to find fetch info from the node itself
-						$fetchInfo = $this->getFetchInfoAfterComment($node);
-						$inWhileLoop = false;
 					}
 
 					$varShapes[] = [
@@ -1068,9 +1234,12 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		}
 
 		// Negative patterns mean "no rows" → not a positive guard
-		// rowCount() === 0  /  rowCount() == 0
+		// rowCount() === 1 / rowCount() == 2 → positive guard
+		// rowCount() === 0 / rowCount() == 0 → "no rows", not a positive guard
 		if ($expr instanceof Node\Expr\BinaryOp\Identical || $expr instanceof Node\Expr\BinaryOp\Equal) {
-			return false;
+			$other = $expr->left instanceof MethodCall ? $expr->right : $expr->left;
+
+			return $other instanceof Node\Scalar\Int_ && $other->value > 0;
 		}
 
 		$rowCountIsLeft = $expr->left instanceof MethodCall
@@ -1120,15 +1289,14 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			return [];
 		}
 
-		// Get the statement variable being called on (e.g., $stmt)
-		if (
-			!$methodCall->var instanceof Variable || !is_string($methodCall->var->name)
-		) {
+		// Get the statement being called on (e.g., $stmt or $this->stmt)
+		$fetchTarget = $this->extractFetchTarget($methodCall);
+		if ($fetchTarget === null) {
 			return [];
 		}
 
 		$result = [
-			'var' => $methodCall->var->name,
+			'var' => $fetchTarget,
 			'method' => $methodName,
 		];
 
