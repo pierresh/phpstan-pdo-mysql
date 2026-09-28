@@ -4,7 +4,7 @@ Static analysis rules for PHPStan that validate PDO/MySQL code for common errors
 
 ## Features
 
-This extension provides seven powerful rules that work without requiring a database connection:
+This extension provides eight powerful rules that work without requiring a database connection:
 
 1. **SQL Syntax Validation** - Detects MySQL syntax errors in `prepare()` and `query()` calls
 2. **Parameter Binding Validation** - Ensures PDO parameters match SQL placeholders
@@ -13,6 +13,7 @@ This extension provides seven powerful rules that work without requiring a datab
 5. **Invalid Table Reference Detection** - Catches typos in table/alias names (e.g., `user.name` when table is `users`)
 6. **Tautological Condition Detection** - Catches always-true/false conditions like `WHERE 1 = 1`
 7. **MySQL-Specific Syntax Detection** - Flags MySQL-specific functions that have portable ANSI alternatives
+8. **Non-Portable rowCount() Detection** - Flags `rowCount()` checks on SELECT statements that do not work on SQL Server
 
 All validation is performed statically by analyzing your code, so no database setup is needed.
 
@@ -320,13 +321,15 @@ foreach ($userIds as $userId) {
 }
 
 // ✅ Correct: Fetch inside a positive rowCount() check
-if ($stmt->rowCount() === 1) { // or > 0, >= 1, !== 0
+if ($stmt->rowCount() !== 0) { // or != 0, or if ($stmt->rowCount())
     /** @var object{id: int, name: string} */
     $user = $stmt->fetch();
 }
 ```
 
 The rowCount() guard must be on the **same statement** as the fetch and placed **before** it (in the same block or an enclosing one). A guard on another statement, in another if/else branch, or after the fetch does not count.
+
+Only rowCount() comparisons with `0` count as guards: `=== 0`, `== 0` or `!$stmt->rowCount()` to exit early, and `!== 0`, `!= 0` or `if ($stmt->rowCount())` around the fetch. Comparisons such as `> 0`, `>= 1`, `=== 1` or `< 1` do not count, because they are not portable: on SQL Server (`pdo_sqlsrv`), rowCount() after a SELECT returns `-1` when there are rows (see [Non-Portable rowCount() Detection](#8-non-portable-rowcount-detection)). The most portable option is `|false` in the type and a check of the `fetch()` result against false.
 
 ```php
 // ✅ Correct: Check for false after fetch
@@ -631,6 +634,46 @@ Currently detects:
 - `CURDATE()` → Bind PHP date variable
 - `LIMIT offset, count` → Use `LIMIT count OFFSET offset`
 
+### 8. Non-Portable rowCount() Detection
+
+`rowCount()` after a SELECT is not reliable across databases: on SQL Server (`pdo_sqlsrv`), it returns `-1` when there are rows. Checks like `rowCount() > 0` or `rowCount() === 1` never match there, so the code behind them is silently skipped.
+
+```php
+// ❌ rowCount() > 0 never matches on SQL Server
+$stmt = $db->prepare("SELECT id FROM users WHERE id = :id");
+$stmt->execute(['id' => 1]);
+
+return $stmt->rowCount() > 0;
+```
+
+> [!CAUTION]
+> Not portable to SQL Server: $stmt->rowCount() > 0 on a SELECT (line X). On SQL Server, rowCount() after a SELECT returns -1 when there are rows. Use fetch() and check the result against false instead.
+
+```php
+// ✅ fetch() and check the result against false
+$stmt = $db->prepare("SELECT id FROM users WHERE id = :id");
+$stmt->execute(['id' => 1]);
+
+return $stmt->fetch() !== false;
+```
+
+Only statements whose SQL is known to be a SELECT are checked: `rowCount()` after an UPDATE, DELETE or INSERT is portable. Comparisons with `0` (`=== 0`, `== 0`, `!== 0`, `!= 0`) are not flagged, as SQL Server has been observed to return `0` when a SELECT has no rows.
+
+When `fetch()` relies on such a check (e.g. `if ($stmt->rowCount() > 0) { $row = $stmt->fetch(); }`), the SELECT Column Validation rule also reports it at the `@var` annotation, with the same identifier.
+
+```php
+// ✅ Check the fetch() result against false instead of rowCount() > 0
+/** @var object{id: int, name: string}|false $user */
+$user = $stmt->fetch();
+
+if ($user !== false) {
+    // ...
+}
+```
+
+> [!NOTE]
+> With PHPStan's default `treatPhpDocTypesAsCertain: true`, keep `|false` in the `@var` type: without it, PHPStan reports the `=== false` / `!== false` check as always false. With `treatPhpDocTypesAsCertain: false`, the check alone is enough.
+
 ## Requirements
 
 - PHP 8.1+
@@ -691,6 +734,7 @@ These rules are designed to be fast:
 | `pdoSql.invalidTableReference` | Invalid Table Reference Detection | Invalid table or alias name in qualified column reference |
 | `pdoSql.mySqlSpecific` | MySQL-Specific Syntax | MySQL-specific function with portable alternative |
 | `pdoSql.tautologicalCondition` | Tautological Condition Detection | Always-true or always-false condition detected |
+| `pdoSql.nonPortableRowCount` | Non-Portable rowCount() Detection | `rowCount()` check on a SELECT that does not work on SQL Server |
 
 ### Ignoring Specific Errors
 

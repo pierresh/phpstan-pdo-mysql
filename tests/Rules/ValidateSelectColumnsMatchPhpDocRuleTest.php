@@ -189,6 +189,22 @@ class ValidateSelectColumnsMatchPhpDocRuleTest extends RuleTestCase
 				'SELECT column missing: PHPDoc expects property "status" but it is not in the SELECT query (line 168)',
 				176,
 			],
+			[
+				'Not portable to SQL Server: fetch() relies on $orders->rowCount() === 1 (line 191), but on SQL Server rowCount() after a SELECT returns -1 when there are rows. Check the fetch() result against false instead (line 188)',
+				192,
+			],
+			[
+				'Not portable to SQL Server: fetch() relies on $orders->rowCount() > 0 (line 202), but on SQL Server rowCount() after a SELECT returns -1 when there are rows. Check the fetch() result against false instead (line 199)',
+				203,
+			],
+			[
+				'Not portable to SQL Server: fetch() relies on $orders->rowCount() < 1 (line 213), but on SQL Server rowCount() after a SELECT returns -1 when there are rows. Check the fetch() result against false instead (line 210)',
+				217,
+			],
+			[
+				'Missing |false in @var type: fetch() can return false when no results found. Either add |false to the type or check for false/rowCount() before using the result (line 223)',
+				231,
+			],
 		]);
 	}
 

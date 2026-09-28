@@ -459,11 +459,11 @@ class SelectColumnErrors
 
 	public function fetchInsidePositiveRowCountIf(): void
 	{
-		// fetch() is inside if (rowCount() > 0) block - should NOT error
+		// fetch() is inside if (rowCount() !== 0) block - should NOT error
 		$stmt = $this->db->prepare('SELECT id, name FROM users WHERE id = :id');
 		$stmt->execute(['id' => 1]);
 
-		if ($stmt->rowCount() > 0) {
+		if ($stmt->rowCount() !== 0) {
 			/** @var object{id: int, name: string} */
 			$user = $stmt->fetch();
 		}
@@ -472,7 +472,7 @@ class SelectColumnErrors
 	public function fetchInsidePositiveRowCountIfWithPropertyStmt(): void
 	{
 		// same but with a property-based statement - should NOT error
-		if ($this->userStmt->rowCount() > 0) {
+		if ($this->userStmt->rowCount() !== 0) {
 			/** @var object{id: int, name: string} */
 			$user = $this->userStmt->fetch(\PDO::FETCH_OBJ);
 		}

@@ -39,3 +39,7 @@ services:
         class: Pierresh\PhpStanPdoMysql\Rules\DetectTautologicalConditionsRule
         tags:
             - phpstan.rules.rule
+    -
+        class: Pierresh\PhpStanPdoMysql\Rules\DetectNonPortableRowCountRule
+        tags:
+            - phpstan.rules.rule

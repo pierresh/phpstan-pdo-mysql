@@ -179,7 +179,11 @@ class SelectColumnLoopErrors
 		}
 	}
 
-	public function rowCountEqualsOneGuardNoMissingFalse(): void
+	// On SQL Server, rowCount() after a SELECT returns -1 when there are rows
+	// and 0 when there are none: only "=== 0" and "!== 0" style checks are
+	// portable, so only those count as guards
+
+	public function rowCountEqualsOneGuardNotPortableStillFlagged(): void
 	{
 		$orders = $this->db->prepare('SELECT order_id, total FROM orders WHERE user_id = :user_id');
 		$orders->execute(['user_id' => 1]);
@@ -188,5 +192,91 @@ class SelectColumnLoopErrors
 			/** @var object{order_id: int, total: float} $order */
 			$order = $orders->fetch();
 		}
+	}
+
+	public function rowCountGreaterThanZeroGuardNotPortableStillFlagged(): void
+	{
+		$orders = $this->db->prepare('SELECT order_id, total FROM orders WHERE user_id = :user_id');
+		$orders->execute(['user_id' => 1]);
+
+		if ($orders->rowCount() > 0) {
+			/** @var object{order_id: int, total: float} $order */
+			$order = $orders->fetch();
+		}
+	}
+
+	public function rowCountLessThanOneEarlyExitNotPortableStillFlagged(): void
+	{
+		$orders = $this->db->prepare('SELECT order_id, total FROM orders WHERE user_id = :user_id');
+		$orders->execute(['user_id' => 1]);
+
+		if ($orders->rowCount() < 1) {
+			return;
+		}
+
+		/** @var object{order_id: int, total: float} $order */
+		$order = $orders->fetch();
+	}
+
+	public function rowCountEarlyExitWhenRowsExistStillFlagged(): void
+	{
+		$orders = $this->db->prepare('SELECT order_id, total FROM orders WHERE user_id = :user_id');
+		$orders->execute(['user_id' => 1]);
+
+		// Exits when there ARE rows: the fetch below only runs with no rows
+		if ($orders->rowCount() !== 0) {
+			return;
+		}
+
+		/** @var object{order_id: int, total: float} $order */
+		$order = $orders->fetch();
+	}
+
+	public function rowCountLooseNotEqualZeroGuardNoMissingFalse(): void
+	{
+		$orders = $this->db->prepare('SELECT order_id, total FROM orders WHERE user_id = :user_id');
+		$orders->execute(['user_id' => 1]);
+
+		if ($orders->rowCount() != 0) {
+			/** @var object{order_id: int, total: float} $order */
+			$order = $orders->fetch();
+		}
+	}
+
+	public function rowCountTruthyGuardNoMissingFalse(): void
+	{
+		$orders = $this->db->prepare('SELECT order_id, total FROM orders WHERE user_id = :user_id');
+		$orders->execute(['user_id' => 1]);
+
+		if ($orders->rowCount()) {
+			/** @var object{order_id: int, total: float} $order */
+			$order = $orders->fetch();
+		}
+	}
+
+	public function rowCountNotEarlyExitNoMissingFalse(): void
+	{
+		$orders = $this->db->prepare('SELECT order_id, total FROM orders WHERE user_id = :user_id');
+		$orders->execute(['user_id' => 1]);
+
+		if (!$orders->rowCount()) {
+			return;
+		}
+
+		/** @var object{order_id: int, total: float} $order */
+		$order = $orders->fetch();
+	}
+
+	public function rowCountZeroOnLeftEarlyExitNoMissingFalse(): void
+	{
+		$orders = $this->db->prepare('SELECT order_id, total FROM orders WHERE user_id = :user_id');
+		$orders->execute(['user_id' => 1]);
+
+		if (0 == $orders->rowCount()) {
+			return;
+		}
+
+		/** @var object{order_id: int, total: float} $order */
+		$order = $orders->fetch();
 	}
 }

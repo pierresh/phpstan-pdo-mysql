@@ -11,6 +11,7 @@ use PhpParser\Node\Scalar\InterpolatedString;
 use PhpParser\Node\Scalar\String_;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassMethod;
+use PhpParser\PrettyPrinter\Standard;
 use PHPStan\Analyser\Scope;
 use PHPStan\Rules\IdentifierRuleError;
 use PHPStan\Rules\Rule;
@@ -296,20 +297,44 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		// Check for a rowCount() guard on the same statement, placed before the
 		// fetch in the same block or in an enclosing one
 		$fetchVar = $varAnnotation['fetch_var'];
-		if (
-			$fetchVar !== null
-			&& $this->hasRowCountGuardBefore(
+		$precedingIfs = [];
+		$enclosingIfs = [];
+		if ($fetchVar !== null) {
+			$this->collectIfsOnPath(
 				$varAnnotation['method']->getStmts() ?? [],
-				$fetchVar,
 				$varAnnotation['var_line'],
-			)
-		) {
-			return null;
+				$precedingIfs,
+				$enclosingIfs,
+			);
+
+			foreach ($precedingIfs as $precedingIf) {
+				if ($this->isEarlyExitRowCountGuard($precedingIf, $fetchVar)) {
+					return null;
+				}
+			}
 		}
 
 		// Check if code has false-handling nearby
 		if ($this->hasFalseHandlingInMethod($varAnnotation['method'], $fetchVar === null)) {
 			return null; // Has false handling, no error
+		}
+
+		// The fetch relies on a rowCount() check that does not work on SQL Server
+		$nonPortableGuard = $fetchVar !== null
+			? $this->findNonPortableRowCountGuard($precedingIfs, $enclosingIfs, $fetchVar)
+			: null;
+		if ($nonPortableGuard instanceof Node\Expr\BinaryOp) {
+			return RuleErrorBuilder::message(sprintf(
+				'Not portable to SQL Server: %s() relies on %s (line %d), but on SQL Server rowCount() after a SELECT returns -1 when there are rows. Check the %s() result against false instead (line %d)',
+				$fetchMethod,
+				(new Standard())->prettyPrintExpr($nonPortableGuard),
+				$nonPortableGuard->getStartLine(),
+				$fetchMethod,
+				$varAnnotation['sql_line'],
+			))
+				->line($varAnnotation['var_line'])
+				->identifier('pdoSql.nonPortableRowCount')
+				->build();
 		}
 
 		// No |false and no false-handling detected
@@ -504,15 +529,18 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	}
 
 	/**
-	 * Check if a rowCount() guard on $fetchVar exits early before the @var line,
-	 * either in the same block or in an enclosing block (loop body, if branch...)
+	 * Collect the if statements on the path leading to the @var line: those placed
+	 * before it in the same or an enclosing block (loop body, if branch...), and
+	 * those whose body holds it.
 	 *
 	 * Only the path of blocks leading to the @var is walked, so the cost is bounded
 	 * by the nesting depth times the number of sibling statements.
 	 *
 	 * @param array<mixed> $statements
+	 * @param list<Node\Stmt\If_> $precedingIfs
+	 * @param list<Node\Stmt\If_> $enclosingIfs
 	 */
-	private function hasRowCountGuardBefore(array $statements, string $fetchVar, int $varLine): bool
+	private function collectIfsOnPath(array $statements, int $varLine, array &$precedingIfs, array &$enclosingIfs): void
 	{
 		foreach ($statements as $statement) {
 			if (!$statement instanceof Node\Stmt) {
@@ -520,11 +548,8 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			}
 
 			if ($statement->getEndLine() < $varLine) {
-				if (
-					$statement instanceof Node\Stmt\If_
-					&& $this->isEarlyExitRowCountGuard($statement, $fetchVar)
-				) {
-					return true;
+				if ($statement instanceof Node\Stmt\If_) {
+					$precedingIfs[] = $statement;
 				}
 
 				continue;
@@ -532,17 +557,20 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 
 			// First statement reaching the @var line: it is either the annotated
 			// statement itself or a compound statement containing it
-			return $this->hasRowCountGuardInNestedBlocks($statement, $fetchVar, $varLine);
-		}
+			$this->collectIfsInNestedBlocks($statement, $varLine, $precedingIfs, $enclosingIfs);
 
-		return false;
+			return;
+		}
 	}
 
 	/**
 	 * Descend into the one nested block of $node that holds the @var line
 	 * (blocks never overlap, so sibling branches are skipped)
+	 *
+	 * @param list<Node\Stmt\If_> $precedingIfs
+	 * @param list<Node\Stmt\If_> $enclosingIfs
 	 */
-	private function hasRowCountGuardInNestedBlocks(Node $node, string $fetchVar, int $varLine): bool
+	private function collectIfsInNestedBlocks(Node $node, int $varLine, array &$precedingIfs, array &$enclosingIfs): void
 	{
 		foreach ($node->getSubNodeNames() as $subNodeName) {
 			$subNode = $node->{$subNodeName}; // @phpstan-ignore property.dynamicName
@@ -571,7 +599,14 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			}
 
 			if ($first instanceof Node\Stmt) {
-				return $this->hasRowCountGuardBefore($subNode, $fetchVar, $varLine);
+				// The @var is in the body of this if (not in its else/elseif branches)
+				if ($node instanceof Node\Stmt\If_ && $subNodeName === 'stmts') {
+					$enclosingIfs[] = $node;
+				}
+
+				$this->collectIfsOnPath($subNode, $varLine, $precedingIfs, $enclosingIfs);
+
+				return;
 			}
 
 			// Branches like else/elseif/catch/case hold their own statement lists
@@ -581,12 +616,76 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 					&& $this->getStartLineWithComments($item) <= $varLine
 					&& $item->getEndLine() >= $varLine
 				) {
-					return $this->hasRowCountGuardInNestedBlocks($item, $fetchVar, $varLine);
+					$this->collectIfsInNestedBlocks($item, $varLine, $precedingIfs, $enclosingIfs);
+
+					return;
 				}
 			}
 		}
+	}
 
-		return false;
+	/**
+	 * Find a non-portable rowCount() comparison on $fetchVar guarding the fetch:
+	 * in an enclosing if (e.g. if (rowCount() > 0) { fetch }) or in an early exit
+	 * before it (e.g. if (rowCount() < 1) { return; })
+	 *
+	 * @param list<Node\Stmt\If_> $precedingIfs
+	 * @param list<Node\Stmt\If_> $enclosingIfs
+	 */
+	private function findNonPortableRowCountGuard(array $precedingIfs, array $enclosingIfs, string $fetchVar): ?Node\Expr\BinaryOp
+	{
+		foreach ($enclosingIfs as $enclosingIf) {
+			$comparison = $this->findNonPortableRowCountComparison($enclosingIf->cond, $fetchVar);
+			if ($comparison instanceof Node\Expr\BinaryOp) {
+				return $comparison;
+			}
+		}
+
+		foreach ($precedingIfs as $precedingIf) {
+			if (!$this->hasEarlyExit($precedingIf)) {
+				continue;
+			}
+
+			$comparison = $this->findNonPortableRowCountComparison($precedingIf->cond, $fetchVar);
+			if ($comparison instanceof Node\Expr\BinaryOp) {
+				return $comparison;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Find a rowCount() comparison on $fetchVar other than ===/==/!==/!= 0,
+	 * possibly one side of && or ||
+	 */
+	private function findNonPortableRowCountComparison(Node\Expr $expr, string $fetchVar): ?Node\Expr\BinaryOp
+	{
+		if (
+			$expr instanceof Node\Expr\BinaryOp\BooleanOr
+			|| $expr instanceof Node\Expr\BinaryOp\BooleanAnd
+			|| $expr instanceof Node\Expr\BinaryOp\LogicalOr
+			|| $expr instanceof Node\Expr\BinaryOp\LogicalAnd
+		) {
+			return $this->findNonPortableRowCountComparison($expr->left, $fetchVar)
+				?? $this->findNonPortableRowCountComparison($expr->right, $fetchVar);
+		}
+
+		if (
+			!$expr instanceof Node\Expr\BinaryOp
+			|| !$this->isRowCountCallOn($expr->left, $fetchVar) && !$this->isRowCountCallOn($expr->right, $fetchVar)
+		) {
+			return null;
+		}
+
+		$isEqualityWithZero = (
+			$expr instanceof Node\Expr\BinaryOp\Identical
+			|| $expr instanceof Node\Expr\BinaryOp\NotIdentical
+			|| $expr instanceof Node\Expr\BinaryOp\Equal
+			|| $expr instanceof Node\Expr\BinaryOp\NotEqual
+		) && $this->comparesRowCountWithZero($expr, $fetchVar);
+
+		return $isEqualityWithZero ? null : $expr;
 	}
 
 	/**
@@ -607,10 +706,14 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 */
 	private function isEarlyExitRowCountGuard(Node\Stmt\If_ $if, string $fetchVar): bool
 	{
-		if (!$this->conditionHasRowCountOn($if->cond, $fetchVar)) {
-			return false;
-		}
+		return $this->conditionHasNoRowsCheck($if->cond, $fetchVar) && $this->hasEarlyExit($if);
+	}
 
+	/**
+	 * Check if the if body leaves the current flow: return, throw, continue or break
+	 */
+	private function hasEarlyExit(Node\Stmt\If_ $if): bool
+	{
 		foreach ($if->stmts as $stmt) {
 			if (
 				$stmt instanceof Node\Stmt\Return_
@@ -625,31 +728,54 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 		return false;
 	}
 
-	private function conditionHasRowCountOn(Node\Expr $expr, string $fetchVar): bool
+	/**
+	 * Check for a portable "no rows" condition, possibly one side of an ||
+	 *
+	 * On SQL Server, rowCount() after a SELECT returns -1 when there are rows and
+	 * 0 when there are none, so only comparisons with 0 are portable:
+	 * rowCount() === 0, rowCount() == 0 and !rowCount() mean "no rows",
+	 * while rowCount() < 1 or rowCount() <= 0 are also true on SQL Server with rows.
+	 *
+	 * @param string|null $fetchVar The statement to match, null for any statement
+	 */
+	private function conditionHasNoRowsCheck(Node\Expr $expr, ?string $fetchVar): bool
 	{
 		if ($expr instanceof Node\Expr\BinaryOp\BooleanOr || $expr instanceof Node\Expr\BinaryOp\LogicalOr) {
-			return $this->conditionHasRowCountOn($expr->left, $fetchVar)
-				|| $this->conditionHasRowCountOn($expr->right, $fetchVar);
+			return $this->conditionHasNoRowsCheck($expr->left, $fetchVar)
+				|| $this->conditionHasNoRowsCheck($expr->right, $fetchVar);
 		}
 
 		if ($expr instanceof Node\Expr\BooleanNot) {
 			return $this->isRowCountCallOn($expr->expr, $fetchVar);
 		}
 
-		if ($expr instanceof Node\Expr\BinaryOp) {
-			return $this->isRowCountCallOn($expr->left, $fetchVar)
-				|| $this->isRowCountCallOn($expr->right, $fetchVar);
-		}
-
-		return false;
+		return ($expr instanceof Node\Expr\BinaryOp\Identical || $expr instanceof Node\Expr\BinaryOp\Equal)
+			&& $this->comparesRowCountWithZero($expr, $fetchVar);
 	}
 
-	private function isRowCountCallOn(Node\Expr $expr, string $fetchVar): bool
+	/**
+	 * Check for rowCount() === 0 / 0 == rowCount() / ... (operator checked by the caller)
+	 */
+	private function comparesRowCountWithZero(Node\Expr\BinaryOp $binaryOp, ?string $fetchVar): bool
+	{
+		[$call, $other] = $binaryOp->left instanceof MethodCall
+			? [$binaryOp->left, $binaryOp->right]
+			: [$binaryOp->right, $binaryOp->left];
+
+		return $this->isRowCountCallOn($call, $fetchVar)
+			&& $other instanceof Node\Scalar\Int_
+			&& $other->value === 0;
+	}
+
+	/**
+	 * @param string|null $fetchVar The statement to match, null for any statement
+	 */
+	private function isRowCountCallOn(Node\Expr $expr, ?string $fetchVar): bool
 	{
 		return $expr instanceof MethodCall
 			&& $expr->name instanceof Node\Identifier
 			&& $expr->name->toString() === 'rowCount'
-			&& $this->extractFetchTarget($expr) === $fetchVar;
+			&& ($fetchVar === null || $this->extractFetchTarget($expr) === $fetchVar);
 	}
 
 	/**
@@ -657,8 +783,8 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	 */
 	private function isRowCountCheckWithThrowOrReturn(Node\Stmt\If_ $if): bool
 	{
-		// Quick check: does condition contain rowCount()?
-		if (!$this->containsRowCountCall($if->cond)) {
+		// Portable "no rows" check on any statement
+		if (!$this->conditionHasNoRowsCheck($if->cond, null)) {
 			return false;
 		}
 
@@ -672,43 +798,6 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 			if (
 				$stmt instanceof Node\Stmt\Expression
 				&& $stmt->expr instanceof Node\Expr\Throw_
-			) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * Fast non-recursive check for rowCount() in condition
-	 * Only searches one level deep for performance
-	 */
-	private function containsRowCountCall(Node\Expr $expr): bool
-	{
-		// Direct method call: $stmt->rowCount()
-		if (
-			$expr instanceof MethodCall
-			&& $expr->name instanceof Node\Identifier
-			&& $expr->name->toString() === 'rowCount'
-		) {
-			return true;
-		}
-
-		// Binary operation: $stmt->rowCount() === 0
-		if ($expr instanceof Node\Expr\BinaryOp) {
-			if (
-				$expr->left instanceof MethodCall
-				&& $expr->left->name instanceof Node\Identifier
-				&& $expr->left->name->toString() === 'rowCount'
-			) {
-				return true;
-			}
-
-			if (
-				$expr->right instanceof MethodCall
-				&& $expr->right->name instanceof Node\Identifier
-				&& $expr->right->name->toString() === 'rowCount'
 			) {
 				return true;
 			}
@@ -1219,44 +1308,21 @@ class ValidateSelectColumnsMatchPhpDocRule implements Rule
 	}
 
 	/**
-	 * Check if an if condition is a positive rowCount() guard (e.g. rowCount() > 0).
+	 * Check if an if condition is a portable positive rowCount() guard:
+	 * if ($stmt->rowCount()), rowCount() !== 0 or rowCount() != 0.
 	 * When true, fetch() inside the block is always safe — it is only reached when rows exist.
+	 *
+	 * rowCount() > 0, >= 1 or === 1 are not accepted: on SQL Server, rowCount()
+	 * after a SELECT returns -1 when there are rows, so they are never true there.
 	 */
 	private function isPositiveRowCountCondition(Node\Expr $expr): bool
 	{
-		if (!$this->containsRowCountCall($expr)) {
-			return false;
-		}
-
-		// Plain truthy check: if ($stmt->rowCount())
-		if (!($expr instanceof Node\Expr\BinaryOp)) {
+		if ($this->isRowCountCallOn($expr, null)) {
 			return true;
 		}
 
-		// Negative patterns mean "no rows" → not a positive guard
-		// rowCount() === 1 / rowCount() == 2 → positive guard
-		// rowCount() === 0 / rowCount() == 0 → "no rows", not a positive guard
-		if ($expr instanceof Node\Expr\BinaryOp\Identical || $expr instanceof Node\Expr\BinaryOp\Equal) {
-			$other = $expr->left instanceof MethodCall ? $expr->right : $expr->left;
-
-			return $other instanceof Node\Scalar\Int_ && $other->value > 0;
-		}
-
-		$rowCountIsLeft = $expr->left instanceof MethodCall
-			&& $expr->left->name instanceof Node\Identifier
-			&& $expr->left->name->toString() === 'rowCount';
-
-		// rowCount() < 1  /  rowCount() <= 0
-		if ($rowCountIsLeft && ($expr instanceof Node\Expr\BinaryOp\Smaller || $expr instanceof Node\Expr\BinaryOp\SmallerOrEqual)) {
-			return false;
-		}
-
-		$rowCountIsRight = $expr->right instanceof MethodCall
-			&& $expr->right->name instanceof Node\Identifier
-			&& $expr->right->name->toString() === 'rowCount';
-        // 1 > rowCount()  /  0 >= rowCount()
-        // rowCount() > 0, rowCount() >= 1, rowCount() !== 0, rowCount() != 0 → positive guard
-        return !$rowCountIsRight || !$expr instanceof Node\Expr\BinaryOp\Greater && !$expr instanceof Node\Expr\BinaryOp\GreaterOrEqual;
+		return ($expr instanceof Node\Expr\BinaryOp\NotIdentical || $expr instanceof Node\Expr\BinaryOp\NotEqual)
+			&& $this->comparesRowCountWithZero($expr, null);
 	}
 
 	/**

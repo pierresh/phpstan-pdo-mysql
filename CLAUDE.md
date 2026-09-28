@@ -27,6 +27,7 @@ src/
     DetectMySqlSpecificSyntaxRule.php  # Rule 5: Detects MySQL-specific syntax
     DetectInvalidTableReferencesRule.php  # Rule 6: Detects invalid table/alias references
     DetectTautologicalConditionsRule.php  # Rule 7: Detects tautological conditions
+    DetectNonPortableRowCountRule.php  # Rule 8: Detects rowCount() checks not portable to SQL Server
   SqlLinter/                       # SQL parser adapters
     SqlLinterInterface.php            # Interface for SQL linter adapters
     SqlFtwAdapter.php                 # SQLFTW implementation
@@ -40,6 +41,7 @@ tests/                               # PHPUnit tests
     DetectMySqlSpecificSyntaxRuleTest.php
     DetectInvalidTableReferencesRuleTest.php
     DetectTautologicalConditionsRuleTest.php
+    DetectNonPortableRowCountRuleTest.php
   Fixtures/                          # Test fixture files with intentional errors
     SqlSyntaxErrors.php
     ParameterBindingErrors.php
@@ -48,12 +50,13 @@ tests/                               # PHPUnit tests
     MySqlSpecificSyntaxErrors.php
     InvalidTableReferences.php
     TautologicalConditions.php
+    NonPortableRowCount.php
 
 extension.neon                       # PHPStan configuration that registers the rules
 composer.json                        # Package definition
 ```
 
-## The Seven Rules
+## The Eight Rules
 
 ### 1. ValidatePdoSqlSyntaxRule
 - **Purpose**: Catches MySQL syntax errors in `prepare()` and `query()` calls
@@ -106,6 +109,13 @@ composer.json                        # Package definition
 - **Supports**: WHERE, JOIN ON, and HAVING clauses
 - **Performance**: Early bailout using cheap regex pre-check before expensive SQLFTW parsing
 - **Key feature**: Replaces PDO placeholders with NULL to avoid false positives
+
+### 8. DetectNonPortableRowCountRule
+- **Purpose**: Flags rowCount() checks on SELECT statements that do not work on SQL Server
+- **Why**: On SQL Server (pdo_sqlsrv), rowCount() after a SELECT returns -1 when there are rows (0 when there are none)
+- **Detects**: Comparisons other than ===/==/!==/!= 0, e.g. `rowCount() > 0`, `rowCount() === 1`, `rowCount() < 1`
+- **Suggests**: fetch() and check the result against false
+- **Key feature**: Only checks statements whose SQL resolves to a SELECT (rowCount() after UPDATE/DELETE/INSERT is portable)
 
 ## Common Patterns
 
