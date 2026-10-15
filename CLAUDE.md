@@ -93,6 +93,7 @@ composer.json                        # Package definition
   - `NOW()` → suggests `CURRENT_TIMESTAMP`
   - `CURDATE()` → suggests `CURRENT_DATE`
   - `LIMIT offset, count` → suggests `LIMIT count OFFSET offset`
+  - `@name` user variables → suggests a bound parameter (`@@name` system variables allowed; string literals and comments are skipped)
 - **Use case**: Helps maintain database-agnostic code for future migrations
 - **Key feature**: Simple regex-based detection with helpful suggestions
 

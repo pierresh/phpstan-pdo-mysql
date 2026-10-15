@@ -23,6 +23,7 @@ use PHPStan\Rules\RuleErrorBuilder;
  * - NOW() -> CURRENT_TIMESTAMP
  * - CURDATE() -> CURRENT_DATE
  * - LIMIT offset, count -> LIMIT count OFFSET offset
+ * - @user variables (@@system variables are allowed: no portable alternative)
  *
  * @implements Rule<ClassMethod>
  */
@@ -212,6 +213,47 @@ class DetectMySqlSpecificSyntaxRule implements Rule
 				->identifier('pdoSql.mySqlSpecific')
 				->build();
 		}
+
+		$this->checkForVariables($sql, $line, $errors);
+	}
+
+	/**
+	 * Check SQL for MySQL user variables (@name)
+	 *
+	 * System variables (@@name) are allowed: they read engine configuration,
+	 * have no portable alternative, and some (@@VERSION, @@IDENTITY) exist in SQL Server too
+	 *
+	 * @param list<IdentifierRuleError> &$errors
+	 */
+	private function checkForVariables(string $sql, int $line, array &$errors): void
+	{
+		// Quick bailout: most queries contain no @ at all
+		if (!str_contains($sql, '@')) {
+			return;
+		}
+
+		// String literals, quoted identifiers and comments are matched first and
+		// skipped with (*SKIP)(*FAIL), so an @ inside them (e.g. an email) is ignored.
+		// Unclosed ones run to the end of the string (\z) to keep matching linear.
+		$pattern = '/(?:'
+			. '\'(?:\\\\.|\'\'|[^\'\\\\])*+(?:\'|\z)'
+			. '|"(?:\\\\.|""|[^"\\\\])*+(?:"|\z)'
+			. '|`[^`]*+(?:`|\z)'
+			. '|(?:--|#)[^\n]*+'
+			. '|\/\*.*?(?:\*\/|\z)'
+			. ')(*SKIP)(*FAIL)'
+			. '|(?<![\w@$])@[A-Za-z_][\w$]*/s';
+		if (preg_match($pattern, $sql, $matches, PREG_OFFSET_CAPTURE) !== 1) {
+			return;
+		}
+
+		$errors[] = RuleErrorBuilder::message(sprintf(
+			'Avoid MySQL user variable %s, use a bound parameter or compute the value in PHP for database portability',
+			$matches[0][0],
+		))
+			->line($line + $this->calculateLineOffset($sql, $matches[0][1]))
+			->identifier('pdoSql.mySqlSpecific')
+			->build();
 	}
 
 	/**

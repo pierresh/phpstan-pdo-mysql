@@ -119,4 +119,38 @@ class MySqlSpecificSyntaxErrors
 		$stmt = $this->db->prepare('SELECT * FROM users LIMIT 5 OFFSET 10');
 		$stmt->execute();
 	}
+
+	public function usingUserVariable(): void
+	{
+		// @name is a MySQL user variable
+		$stmt = $this->db->prepare('
+			SELECT id, @name, email
+			FROM users
+			WHERE id = :id
+		');
+		$stmt->execute(['id' => 1]);
+	}
+
+	public function assigningUserVariable(): void
+	{
+		// Assigning a user variable with :=
+		$sql = 'SELECT @row := @row + 1 AS row_num FROM users';
+		$stmt = $this->db->prepare($sql);
+		$stmt->execute();
+	}
+
+	public function usingSystemVariable(): void
+	{
+		// @@ system variables have no portable alternative - no error expected
+		$this->db->query('SELECT @@session.sql_mode');
+	}
+
+	public function atSignInsideStringLiteral(): void
+	{
+		// @ inside a string literal or comment is not a variable - no error expected
+		$stmt = $this->db->prepare(
+			"SELECT id FROM users WHERE email = 'john@example.com' OR email = \"a@b.c\" /* x@y */",
+		);
+		$stmt->execute();
+	}
 }

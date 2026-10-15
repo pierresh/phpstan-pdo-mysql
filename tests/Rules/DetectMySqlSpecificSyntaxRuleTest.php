@@ -37,6 +37,14 @@ class DetectMySqlSpecificSyntaxRuleTest extends RuleTestCase
 				'Use LIMIT count OFFSET offset instead of LIMIT offset, count for database portability',
 				94,
 			],
+			[
+				'Avoid MySQL user variable @name, use a bound parameter or compute the value in PHP for database portability',
+				127,
+			],
+			[
+				'Avoid MySQL user variable @row, use a bound parameter or compute the value in PHP for database portability',
+				137,
+			],
 		]);
 	}
 

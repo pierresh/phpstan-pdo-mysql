@@ -616,6 +616,14 @@ $stmt = $db->prepare("SELECT * FROM users LIMIT 10, 5");
 > Use LIMIT count OFFSET offset instead of LIMIT offset, count for database portability
 
 ```php
+// ❌ @name is a MySQL user variable
+$stmt = $db->prepare("SELECT id, @name, email FROM users WHERE id = :id");
+```
+
+> [!CAUTION]
+> Avoid MySQL user variable @name, use a bound parameter or compute the value in PHP for database portability
+
+```php
 // ✅ Bind PHP datetime variables
 $stmt = $db->prepare("SELECT * FROM users WHERE created_at > :now");
 $stmt->execute(['now' => (new \DateTime())->format('Y-m-d H:i:s')]);
@@ -633,6 +641,7 @@ Currently detects:
 - `NOW()` → Bind PHP datetime variable
 - `CURDATE()` → Bind PHP date variable
 - `LIMIT offset, count` → Use `LIMIT count OFFSET offset`
+- `@name` user variables → Use a bound parameter or compute the value in PHP (`@@name` system variables are allowed; `@` inside string literals and comments is ignored)
 
 ### 8. Non-Portable rowCount() Detection
 
